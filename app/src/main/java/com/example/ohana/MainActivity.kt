@@ -100,12 +100,8 @@ class MainActivity : ComponentActivity() {
 
                     val goToUrl = { text: String ->
                         val trimmed = text.trim()
-                        if (trimmed.isBlank()) {
-                            mainWebView?.loadUrl("https://www.google.com")
-                            searchText = ""
-                            return@MaterialTheme
-                        }
                         val url = when {
+                            trimmed.isBlank() -> "https://www.google.com"
                             trimmed.startsWith("http://") || trimmed.startsWith("https://") -> trimmed
                             trimmed.contains(".") && !trimmed.contains(" ") -> "https://$trimmed"
                             else -> "https://www.google.com/search?q=${Uri.encode(trimmed)}"
@@ -398,25 +394,4 @@ class MainActivity : ComponentActivity() {
     private fun loadBlockLists() {
         Thread {
             val lists = listOf(
-                "https://easylist.to/easylist/easylist.txt",
-                "https://easylist.to/easylist/easyprivacy.txt"
-            )
-            lists.forEach { url ->
-                try {
-                    val req = Request.Builder().url(url).build()
-                    okHttpClient.newCall(req).execute().use { resp ->
-                        if (resp.isSuccessful && resp.body != null) {
-                            BufferedReader(InputStreamReader(resp.body!!.byteStream())).use { br ->
-                                br.lineSequence()
-                                    .filter { it.isNotEmpty() && !it.startsWith("!") && it.startsWith("||") }
-                                    .map { it.removePrefix("||").split("^").first().trim() }
-                                    .filter { it.isNotEmpty() && !it.startsWith("/") }
-                                    .forEach { blockedHosts.add(it) }
-                            }
-                        }
-                    }
-                } catch (_: Exception) {}
-            }
-        }.start()
-    }
-}
+                "https://easyli
