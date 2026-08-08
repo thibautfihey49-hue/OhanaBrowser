@@ -1,4 +1,5 @@
 package com.example.ohana
+
 import android.Manifest
 import android.app.DownloadManager
 import android.content.Context
@@ -8,12 +9,7 @@ import android.net.Uri
 import android.os.Build
 import android.os.Bundle
 import android.os.Environment
-import android.webkit.CookieManager
-import android.webkit.WebView
-import android.webkit.WebViewClient
-import android.webkit.WebChromeClient
-import android.webkit.WebResourceRequest
-import android.webkit.WebResourceResponse
+import android.webkit.*
 import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
@@ -33,13 +29,13 @@ import androidx.core.content.ContextCompat
 import androidx.core.content.getSystemService
 import com.google.android.gms.cast.framework.CastContext
 import dagger.hilt.android.AndroidEntryPoint
-import okhttp3.OkHttpClient
-import okhttp3.Request
+import okhttp3.*
 import java.io.BufferedReader
 import java.io.InputStreamReader
 import java.text.SimpleDateFormat
 import java.util.*
 import java.util.concurrent.ConcurrentHashMap
+import java.util.concurrent.TimeUnit
 
 data class BrowserEntry(
     val url: String,
@@ -50,7 +46,13 @@ data class BrowserEntry(
 @AndroidEntryPoint
 class MainActivity : ComponentActivity() {
     private val blockedHosts = ConcurrentHashMap.newKeySet<String>()
-    private val client = OkHttpClient()
+    private val okHttpClient = OkHttpClient.Builder()
+        .connectTimeout(5, TimeUnit.SECONDS)
+        .readTimeout(10, TimeUnit.SECONDS)
+        .retryOnConnectionFailure(true)
+        .followSslRedirects(true)
+        .build()
+
     private var pendingVideoUrl: String? = null
     private lateinit var downloadManager: DownloadManager
     private var castContext: CastContext? = null
@@ -67,9 +69,7 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         prefs = getSharedPreferences("OhanaBrowser", Context.MODE_PRIVATE)
-        try {
-            castContext = CastContext.getSharedInstance(this)
-        } catch (e: Exception) {}
+        try { castContext = CastContext.getSharedInstance(this) } catch (_: Exception) {}
         downloadManager = getSystemService()!!
         loadBlockLists()
 
@@ -88,9 +88,8 @@ class MainActivity : ComponentActivity() {
                     Column(modifier = Modifier.fillMaxSize()) {
                         if (isPrivateMode) {
                             Surface(color = Color(0xFF662222), modifier = Modifier.fillMaxWidth()) {
-                                Text(" 🔒 NAVIGATION PRIVÉE — Aucun historique ne sera sauvegardé",
-                                    color = Color.White,
-                                    modifier = Modifier.padding(8.dp),
+                                Text(" 🔒 NAVIGATION PRIVÉE — Aucune donnée sauvegardée",
+                                    color = Color.White, modifier = Modifier.padding(8.dp),
                                     style = MaterialTheme.typography.bodySmall)
                             }
                         }
@@ -109,14 +108,14 @@ class MainActivity : ComponentActivity() {
                             modifier = Modifier.fillMaxWidth().padding(8.dp),
                             singleLine = true,
                             trailingIcon = {
-                                Row {
-                                    TextButton(onClick = { webView?.loadUrl(url) }) { Text("Aller") }
-                                }
+                                TextButton(onClick = { webView?.loadUrl(url) }) { Text("Aller") }
                             }
                         )
 
-                        Row(modifier = Modifier.fillMaxWidth().padding(horizontal = 2.dp),
-                            horizontalArrangement = Arrangement.SpaceEvenly) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth().padding(2.dp),
+                            horizontalArrangement = Arrangement.SpaceEvenly
+                        ) {
                             IconButton(onClick = { webView?.goBack() }) { Text("◀") }
                             IconButton(onClick = { webView?.reload() }) { Text("🔄") }
                             IconButton(onClick = { webView?.goForward() }) { Text("▶") }
@@ -135,12 +134,7 @@ class MainActivity : ComponentActivity() {
                             }) { Text("📺") }
                             IconButton(onClick = {
                                 isPrivateMode = !isPrivateMode
-                                if (isPrivateMode) {
-                                    clearWebData()
-                                    Toast.makeText(this@MainActivity, "🔒 Mode privé activé", Toast.LENGTH_SHORT).show()
-                                } else {
-                                    Toast.makeText(this@MainActivity, "Mode privé désactivé", Toast.LENGTH_SHORT).show()
-                                }
+                                if (isPrivateMode) clearWebData()
                                 webView?.clearHistory()
                                 url = "https://google.com"
                                 webView?.loadUrl(url)
@@ -150,8 +144,10 @@ class MainActivity : ComponentActivity() {
                         if (showHistory && !isPrivateMode) {
                             Card(modifier = Modifier.fillMaxWidth().weight(1f).padding(8.dp)) {
                                 Column {
-                                    Row(Modifier.fillMaxWidth().padding(8.dp),
-                                        horizontalArrangement = Arrangement.SpaceBetween) {
+                                    Row(
+                                        Modifier.fillMaxWidth().padding(8.dp),
+                                        horizontalArrangement = Arrangement.SpaceBetween
+                                    ) {
                                         Text("📜 Historique", fontWeight = FontWeight.Bold)
                                         TextButton(onClick = { showHistory = false }) { Text("✕") }
                                     }
@@ -163,8 +159,10 @@ class MainActivity : ComponentActivity() {
                                                 showHistory = false
                                             }.padding(8.dp)) {
                                                 Text(entry.title, fontWeight = FontWeight.Medium)
-                                                Text("${dateFormat.format(Date(entry.timestamp))} · ${entry.url.take(40)}...",
-                                                    style = MaterialTheme.typography.bodySmall)
+                                                Text(
+                                                    "${dateFormat.format(Date(entry.timestamp))} · ${entry.url.take(40)}...",
+                                                    style = MaterialTheme.typography.bodySmall
+                                                )
                                             }
                                         }
                                     }
@@ -175,8 +173,10 @@ class MainActivity : ComponentActivity() {
                         if (showFavorites) {
                             Card(modifier = Modifier.fillMaxWidth().weight(1f).padding(8.dp)) {
                                 Column {
-                                    Row(Modifier.fillMaxWidth().padding(8.dp),
-                                        horizontalArrangement = Arrangement.SpaceBetween) {
+                                    Row(
+                                        Modifier.fillMaxWidth().padding(8.dp),
+                                        horizontalArrangement = Arrangement.SpaceBetween
+                                    ) {
                                         Text("⭐ Favoris", fontWeight = FontWeight.Bold)
                                         TextButton(onClick = { showFavorites = false }) { Text("✕") }
                                     }
@@ -202,23 +202,25 @@ class MainActivity : ComponentActivity() {
                                     WebView(ctx).apply {
                                         settings.javaScriptEnabled = true
                                         settings.domStorageEnabled = true
+                                        settings.cacheMode = WebSettings.LOAD_DEFAULT
+                                        settings.setAppCacheEnabled(true)
+                                        settings.databaseEnabled = true
+                                        settings.useWideViewPort = true
+                                        settings.loadWithOverviewMode = true
                                         settings.mediaPlaybackRequiresUserGesture = false
+                                        settings.mixedContentMode = WebSettings.MIXED_CONTENT_COMPATIBILITY_MODE
+                                        CookieManager.getInstance().setAcceptThirdPartyCookies(this, false)
 
                                         webViewClient = object : WebViewClient() {
                                             override fun shouldInterceptRequest(
                                                 view: WebView?,
-                                                request: WebResourceRequest
+                                                request: WebResourceRequest?
                                             ): WebResourceResponse? {
-                                                val host = request.url.host ?: return null
-                                                if (blockedHosts.any { host.contains(it, ignoreCase = true) }) {
+                                                val host = request?.url?.host ?: return null
+                                                if (blockedHosts.any { host.contains(it, true) }) {
                                                     return WebResourceResponse("text/plain", "utf-8", null)
                                                 }
                                                 return null
-                                            }
-
-                                            override fun shouldOverrideUrlLoading(view: WebView?, url: String?): Boolean {
-                                                url?.let { view?.loadUrl(it) }
-                                                return false
                                             }
 
                                             override fun onPageFinished(view: WebView?, url: String?) {
@@ -236,7 +238,9 @@ class MainActivity : ComponentActivity() {
                                                 progress = newProgress
                                             }
                                         }
+
                                         webView = this
+                                        loadUrl("https://google.com")
                                     }
                                 },
                                 modifier = Modifier.weight(1f),
@@ -250,9 +254,8 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun clearWebData() {
-        val cm = CookieManager.getInstance()
-        cm.removeAllCookies {}
-        cm.flush()
+        CookieManager.getInstance().removeAllCookies {}
+        CookieManager.getInstance().flush()
     }
 
     private fun loadHistory(): List<BrowserEntry> {
@@ -299,38 +302,33 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun castVideo(pageUrl: String) {
-        val videoExts = listOf(".mp4", ".webm", ".m3u8", ".mkv", ".avi")
-        val isVideoUrl = videoExts.any { pageUrl.contains(it, ignoreCase = true) }
+        val exts = listOf(".mp4", ".webm", ".m3u8", ".mkv", ".avi")
+        val isVideo = exts.any { pageUrl.contains(it, true) }
         if (castContext == null) {
             Toast.makeText(this, "📺 Cast non disponible", Toast.LENGTH_SHORT).show()
             return
         }
-        if (isVideoUrl) {
-            Toast.makeText(this, "📺 Recherche appareil...", Toast.LENGTH_SHORT).show()
-            val uri = Uri.parse(pageUrl)
-            Toast.makeText(this, "📺 Vidéo prête : ${uri.lastPathSegment}", Toast.LENGTH_LONG).show()
+        if (isVideo) {
+            Toast.makeText(this, "📺 Vidéo détectée — lancement sur appareil…", Toast.LENGTH_SHORT).show()
         } else {
-            Toast.makeText(this, "⚠️ Ce n'est pas un lien vidéo direct", Toast.LENGTH_SHORT).show()
+            Toast.makeText(this, "⚠️ Pas de lien vidéo direct", Toast.LENGTH_SHORT).show()
         }
     }
 
     private fun detectAndDownloadVideo(pageUrl: String) {
-        val videoExts = listOf(".mp4", ".webm", ".m3u8", ".mkv", ".avi")
-        val isVideoUrl = videoExts.any { pageUrl.contains(it, ignoreCase = true) }
-        if (isVideoUrl) {
+        val exts = listOf(".mp4", ".webm", ".m3u8", ".mkv", ".avi")
+        val isVideo = exts.any { pageUrl.contains(it, true) }
+        if (isVideo) {
             pendingVideoUrl = pageUrl
-            checkPermissionAndDownload()
+            when {
+                Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q -> downloadVideo(pageUrl)
+                ContextCompat.checkSelfPermission(
+                    this, Manifest.permission.WRITE_EXTERNAL_STORAGE
+                ) == PackageManager.PERMISSION_GRANTED -> downloadVideo(pageUrl)
+                else -> permissionLauncher.launch(Manifest.permission.WRITE_EXTERNAL_STORAGE)
+            }
         } else {
-            Toast.makeText(this, "⚠️ Ce n'est pas un lien vidéo direct", Toast.LENGTH_SHORT).show()
-        }
-    }
-
-    private fun checkPermissionAndDownload() {
-        when {
-            Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q -> pendingVideoUrl?.let { downloadVideo(it) }
-            ContextCompat.checkSelfPermission(this, Manifest.permission.WRITE_EXTERNAL_STORAGE
-            ) == PackageManager.PERMISSION_GRANTED -> pendingVideoUrl?.let { downloadVideo(it) }
-            else -> permissionLauncher.launch(Manifest.permission.WRITE_EXTERNAL_STORAGE)
+            Toast.makeText(this, "⚠️ Pas de lien vidéo direct", Toast.LENGTH_SHORT).show()
         }
     }
 
@@ -338,7 +336,7 @@ class MainActivity : ComponentActivity() {
         try {
             val uri = Uri.parse(videoUrl)
             val req = DownloadManager.Request(uri).apply {
-                setTitle("Vidéo - ${System.currentTimeMillis()}")
+                setTitle("Vidéo — ${System.currentTimeMillis()}")
                 setDescription("Téléchargé depuis Ohana Browser")
                 setAllowedNetworkTypes(DownloadManager.Request.NETWORK_WIFI or DownloadManager.Request.NETWORK_MOBILE)
                 setNotificationVisibility(DownloadManager.Request.VISIBILITY_VISIBLE_NOTIFY_COMPLETED)
@@ -358,21 +356,21 @@ class MainActivity : ComponentActivity() {
                 "https://easylist.to/easylist/easylist.txt",
                 "https://easylist.to/easylist/easyprivacy.txt"
             )
-            lists.forEach { listUrl ->
+            lists.forEach { url ->
                 try {
-                    val req = Request.Builder().url(listUrl).build()
-                    client.newCall(req).execute().use { resp ->
-                        if (resp.isSuccessful && resp.body != null) {
-                            BufferedReader(InputStreamReader(resp.body!!.byteStream())).use { br ->
+                    val req = Request.Builder().url(url).build()
+                    okHttpClient.newCall(req).execute().use { resp ->
+                        if (resp.isSuccessful) {
+                            BufferedReader(InputStreamReader(resp.body?.byteStream())).use { br ->
                                 br.lineSequence()
                                     .filter { it.isNotEmpty() && !it.startsWith("!") && it.startsWith("||") }
                                     .map { it.removePrefix("||").split("^").first().trim() }
-                                    .filter { it.isNotEmpty() && !it.startsWith("/") }
-                                    .forEach { blockedHosts.add(it) }
+                                    .filter { it.isNotEmpty() }
+                                    .forEach { blockedHosts[it] = true }
                             }
                         }
                     }
-                } catch (e: Exception) {}
+                } catch (_: Exception) {}
             }
         }.start()
     }
