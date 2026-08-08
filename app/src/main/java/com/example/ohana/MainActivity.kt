@@ -366,19 +366,18 @@ class MainActivity : ComponentActivity() {
 
     private fun downloadVideoDirect(videoUrl: String) {
         val uri = Uri.parse(videoUrl)
+        val req = DownloadManager.Request(uri)
+        req.setTitle("Video")
+        req.setDescription("Downloaded from Ohana Browser")
+        req.setAllowedNetworkTypes(DownloadManager.Request.NETWORK_WIFI or DownloadManager.Request.NETWORK_MOBILE)
+        req.setNotificationVisibility(DownloadManager.Request.VISIBILITY_VISIBLE_NOTIFY_COMPLETED)
+        val name = uri.lastPathSegment ?: "video.mp4"
+        req.setDestinationInExternalPublicDir(Environment.DIRECTORY_DOWNLOADS, "Ohana_$name")
         try {
-            val timeStamp = System.currentTimeMillis().toString()
-            val req = DownloadManager.Request(uri)
-            req.setTitle("Video - $timeStamp")
-            req.setDescription("Downloaded from Ohana Browser")
-            req.setAllowedNetworkTypes(DownloadManager.Request.NETWORK_WIFI or DownloadManager.Request.NETWORK_MOBILE)
-            req.setNotificationVisibility(DownloadManager.Request.VISIBILITY_VISIBLE_NOTIFY_COMPLETED)
-            val fileName = "Ohana_" + uri.lastPathSegment
-            req.setDestinationInExternalPublicDir(Environment.DIRECTORY_DOWNLOADS, fileName)
             downloadManager.enqueue(req)
             Toast.makeText(this, "Download started !", Toast.LENGTH_SHORT).show()
         } catch (e: Exception) {
-            Toast.makeText(this, "Error: ${e.message}", Toast.LENGTH_SHORT).show()
+            Toast.makeText(this, "Error", Toast.LENGTH_SHORT).show()
         }
         pendingVideoUrl = null
     }
@@ -396,4 +395,5 @@ class MainActivity : ComponentActivity() {
                         if (resp.isSuccessful && resp.body != null) {
                             BufferedReader(InputStreamReader(resp.body!!.byteStream())).use { br ->
                                 br.lineSequence()
-                                
+                                    .filter { it.isNotEmpty() && !it.startsWith("!") && it.startsWith("||") }
+                                    .m
