@@ -2,7 +2,7 @@ package com.example.ohana
 import android.Manifest
 import android.app.DownloadManager
 import android.content.Context
-import android.content.pm.PackageManager
+import android.content.SharedPreferences
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
@@ -16,12 +16,18 @@ import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
-import androidx.compose.ui.viewinterop.AndroidView
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.viewinterop.AndroidView
 import androidx.core.content.ContextCompat
 import androidx.core.content.getSystemService
 import com.google.android.gms.cast.framework.CastContext
@@ -30,7 +36,16 @@ import okhttp3.OkHttpClient
 import okhttp3.Request
 import java.io.BufferedReader
 import java.io.InputStreamReader
+import java.text.SimpleDateFormat
+import java.util.*
 import java.util.concurrent.ConcurrentHashMap
+
+// 📚 Données pour Historique et Favoris
+data class BrowserEntry(
+    val url: String,
+    val title: String,
+    val timestamp: Long = System.currentTimeMillis()
+)
 
 @AndroidEntryPoint
 class MainActivity : ComponentActivity() {
@@ -45,6 +60,10 @@ class MainActivity : ComponentActivity() {
     // 📺 Cast
     private var castContext: CastContext? = null
 
+    // 💾 Stockage persistant
+    private lateinit var prefs: SharedPreferences
+    private val dateFormat = SimpleDateFormat("dd/MM HH:mm", Locale.FRANCE)
+
     // 🔑 Permission stockage
     private val permissionLauncher = registerForActivityResult(
         ActivityResultContracts.RequestPermission()
@@ -56,10 +75,13 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
+        // 💾 Initialiser le stockage
+        prefs = getSharedPreferences("OhanaBrowser", Context.MODE_PRIVATE)
+
         // 📺 Initialiser Cast
         try {
             castContext = CastContext.getSharedInstance(this)
-        } catch (e: Exception) { /* Cast non disponible sur cet appareil */ }
+        } catch (e: Exception) { /* Cast non disponible */ }
 
         downloadManager = getSystemService()!!
         loadBlockLists()
@@ -70,7 +92,12 @@ class MainActivity : ComponentActivity() {
                     var url by remember { mutableStateOf("https://google.com") }
                     var progress by remember { mutableStateOf(0) }
                     var webView by remember { mutableStateOf<WebView?>(null) }
+                    var showHistory by remember { mutableStateOf(false) }
+                    var showFavorites by remember { mutableStateOf(false) }
+                    var history by remember { mutableStateOf(loadHistory()) }
+                    var favorites by remember { mutableStateOf(loadFavorites()) }
 
+                    // 🌐 Page principale
                     Column(modifier = Modifier.fillMaxSize()) {
                         // 📊 Barre de progression
                         if (progress in 1..99) {
@@ -96,14 +123,22 @@ class MainActivity : ComponentActivity() {
                             }
                         )
 
-                        // ⏮️ Boutons + 📥 Télécharger + 📺 Diffuser
+                        // ⏮️ Boutons de navigation + Actions
                         Row(
-                            modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp),
+                            modifier = Modifier.fillMaxWidth().padding(horizontal = 4.dp),
                             horizontalArrangement = Arrangement.SpaceEvenly
                         ) {
                             IconButton(onClick = { webView?.goBack() }) { Text("◀") }
                             IconButton(onClick = { webView?.reload() }) { Text("🔄") }
                             IconButton(onClick = { webView?.goForward() }) { Text("▶") }
+                            IconButton(onClick = { showHistory = !showHistory }) { Text("📜") }
+                            IconButton(onClick = {
+                                val currentUrl = webView?.url ?: return@IconButton
+                                val title = webView?.title ?: currentUrl
+                                toggleFavorite(currentUrl, title, favorites)
+                                favorites = loadFavorites()
+                            }) { Text("⭐") }
+                            IconButton(onClick = { showFavorites = !showFavorites }) { Text("📂") }
                             IconButton(onClick = {
                                 webView?.let { wv ->
                                     val currentUrl = wv.url ?: return@IconButton
@@ -118,48 +153,155 @@ class MainActivity : ComponentActivity() {
                             }) { Text("📺") }
                         }
 
-                        // 🌐 WebView
-                        AndroidView(
-                            factory = { ctx ->
-                                WebView(ctx).apply {
-                                    settings.javaScriptEnabled = true
-                                    settings.domStorageEnabled = true
-                                    settings.mediaPlaybackRequiresUserGesture = false
-
-                                    webViewClient = object : WebViewClient() {
-                                        override fun shouldInterceptRequest(
-                                            view: WebView?,
-                                            request: WebResourceRequest
-                                        ): WebResourceResponse? {
-                                            val host = request.url.host ?: return null
-                                            if (blockedHosts.any { host.contains(it, ignoreCase = true) }) {
-                                                return WebResourceResponse("text/plain", "utf-8", null)
+                        // 📜 Historique
+                        if (showHistory) {
+                            Card(modifier = Modifier.fillMaxWidth().weight(1f).padding(8.dp)) {
+                                Column {
+                                    Row(Modifier.fillMaxWidth().padding(8.dp),
+                                        horizontalArrangement = Arrangement.SpaceBetween) {
+                                        Text("📜 Historique", fontWeight = FontWeight.Bold)
+                                        TextButton(onClick = { showHistory = false }) { Text("✕") }
+                                    }
+                                    LazyColumn {
+                                        items(history) { entry ->
+                                            Column(Modifier.clickable {
+                                                url = entry.url
+                                                webView?.loadUrl(entry.url)
+                                                showHistory = false
+                                            }.padding(8.dp)) {
+                                                Text(entry.title, fontWeight = FontWeight.Medium)
+                                                Text("${dateFormat.format(Date(entry.timestamp))} · ${entry.url.take(40)}...",
+                                                    style = androidx.compose.material3.MaterialTheme.typography.bodySmall)
                                             }
-                                            return null
-                                        }
-
-                                        override fun shouldOverrideUrlLoading(view: WebView?, url: String?): Boolean {
-                                            url?.let { view?.loadUrl(it) }
-                                            return false
                                         }
                                     }
-
-                                    webChromeClient = object : WebChromeClient() {
-                                        override fun onProgressChanged(view: WebView?, newProgress: Int) {
-                                            super.onProgressChanged(view, newProgress)
-                                            progress = newProgress
-                                        }
-                                    }
-                                    webView = this
                                 }
-                            },
-                            modifier = Modifier.weight(1f),
-                            update = { wv -> if (wv.url != url) wv.loadUrl(url) }
-                        )
+                            }
+                        }
+
+                        // 📂 Favoris
+                        if (showFavorites) {
+                            Card(modifier = Modifier.fillMaxWidth().weight(1f).padding(8.dp)) {
+                                Column {
+                                    Row(Modifier.fillMaxWidth().padding(8.dp),
+                                        horizontalArrangement = Arrangement.SpaceBetween) {
+                                        Text("⭐ Favoris", fontWeight = FontWeight.Bold)
+                                        TextButton(onClick = { showFavorites = false }) { Text("✕") }
+                                    }
+                                    LazyColumn {
+                                        items(favorites) { entry ->
+                                            Column(Modifier.clickable {
+                                                url = entry.url
+                                                webView?.loadUrl(entry.url)
+                                                showFavorites = false
+                                            }.padding(8.dp)) {
+                                                Text(entry.title, fontWeight = FontWeight.Medium)
+                                                Text(entry.url, style = androidx.compose.material3.MaterialTheme.typography.bodySmall)
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+
+                        // 🌐 WebView
+                        if (!showHistory && !showFavorites) {
+                            AndroidView(
+                                factory = { ctx ->
+                                    WebView(ctx).apply {
+                                        settings.javaScriptEnabled = true
+                                        settings.domStorageEnabled = true
+                                        settings.mediaPlaybackRequiresUserGesture = false
+
+                                        webViewClient = object : WebViewClient() {
+                                            override fun shouldInterceptRequest(
+                                                view: WebView?,
+                                                request: WebResourceRequest
+                                            ): WebResourceResponse? {
+                                                val host = request.url.host ?: return null
+                                                if (blockedHosts.any { host.contains(it, ignoreCase = true) }) {
+                                                    return WebResourceResponse("text/plain", "utf-8", null)
+                                                }
+                                                return null
+                                            }
+
+                                            override fun shouldOverrideUrlLoading(view: WebView?, url: String?): Boolean {
+                                                url?.let { view?.loadUrl(it) }
+                                                return false
+                                            }
+
+                                            override fun onPageFinished(view: WebView?, url: String?) {
+                                                super.onPageFinished(view, url)
+                                                url?.let { u ->
+                                                    val title = view?.title ?: u
+                                                    addToHistory(u, title)
+                                                    history = loadHistory()
+                                                }
+                                            }
+                                        }
+
+                                        webChromeClient = object : WebChromeClient() {
+                                            override fun onProgressChanged(view: WebView?, newProgress: Int) {
+                                                super.onProgressChanged(view, newProgress)
+                                                progress = newProgress
+                                            }
+                                        }
+                                        webView = this
+                                    }
+                                },
+                                modifier = Modifier.weight(1f),
+                                update = { wv -> if (wv.url != url) wv.loadUrl(url) }
+                            )
+                        }
                     }
                 }
             }
         }
+    }
+
+    // 📜 Historique : Charger / Ajouter
+    private fun loadHistory(): List<BrowserEntry> {
+        val urls = prefs.getStringSet("history_urls", emptySet()) ?: emptySet()
+        val titles = prefs.getStringSet("history_titles", emptySet()) ?: emptySet()
+        val times = prefs.getStringSet("history_times", emptySet()) ?: emptySet()
+        return urls.zip(titles).zip(times).map {
+            BrowserEntry(it.first.first, it.first.second, it.second.toLongOrNull() ?: 0L)
+        }.sortedByDescending { it.timestamp }
+    }
+
+    private fun addToHistory(url: String, title: String) {
+        val history = loadHistory().toMutableList()
+        history.removeAll { it.url == url }
+        history.add(0, BrowserEntry(url, title))
+        if (history.size > 100) history.removeLast() // Limite à 100 entrées
+        prefs.edit()
+            .putStringSet("history_urls", history.map { it.url }.toMutableSet())
+            .putStringSet("history_titles", history.map { it.title }.toMutableSet())
+            .putStringSet("history_times", history.map { it.timestamp.toString() }.toMutableSet())
+            .apply()
+    }
+
+    // ⭐ Favoris : Charger / Ajouter / Supprimer
+    private fun loadFavorites(): List<BrowserEntry> {
+        val urls = prefs.getStringSet("fav_urls", emptySet()) ?: emptySet()
+        val titles = prefs.getStringSet("fav_titles", emptySet()) ?: emptySet()
+        return urls.zip(titles).map { BrowserEntry(it.first, it.second) }.sortedBy { it.title }
+    }
+
+    private fun toggleFavorite(url: String, title: String, currentFavs: List<BrowserEntry>) {
+        val favs = currentFavs.toMutableList()
+        val existing = favs.find { it.url == url }
+        if (existing != null) {
+            favs.remove(existing)
+            Toast.makeText(this, "⭐ Retiré des favoris", Toast.LENGTH_SHORT).show()
+        } else {
+            favs.add(BrowserEntry(url, title))
+            Toast.makeText(this, "⭐ Ajouté aux favoris !", Toast.LENGTH_SHORT).show()
+        }
+        prefs.edit()
+            .putStringSet("fav_urls", favs.map { it.url }.toMutableSet())
+            .putStringSet("fav_titles", favs.map { it.title }.toMutableSet())
+            .apply()
     }
 
     // 📺 Diffuser la vidéo sur TV
