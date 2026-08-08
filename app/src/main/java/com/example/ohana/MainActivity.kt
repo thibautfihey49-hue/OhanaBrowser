@@ -1,18 +1,29 @@
 package com.example.ohana
+import android.Manifest
+import android.app.DownloadManager
+import android.content.Context
+import android.content.pm.PackageManager
+import android.net.Uri
+import android.os.Build
 import android.os.Bundle
+import android.os.Environment
 import android.webkit.WebView
 import android.webkit.WebViewClient
 import android.webkit.WebChromeClient
 import android.webkit.WebResourceRequest
 import android.webkit.WebResourceResponse
+import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
+import androidx.core.content.ContextCompat
+import androidx.core.content.getSystemService
 import dagger.hilt.android.AndroidEntryPoint
 import okhttp3.OkHttpClient
 import okhttp3.Request
@@ -22,14 +33,25 @@ import java.util.concurrent.ConcurrentHashMap
 
 @AndroidEntryPoint
 class MainActivity : ComponentActivity() {
-    // 🛡️ Liste des domaines publicitaires à bloquer
+    // 🛡️ Blocage publicités
     private val blockedHosts = ConcurrentHashMap.newKeySet<String>()
     private val client = OkHttpClient()
 
+    // 📥 Téléchargement
+    private var pendingVideoUrl: String? = null
+    private lateinit var downloadManager: DownloadManager
+
+    // 🔑 Demander la permission de stockage
+    private val permissionLauncher = registerForActivityResult(
+        ActivityResultContracts.RequestPermission()
+    ) { isGranted ->
+        if (isGranted) pendingVideoUrl?.let { downloadVideo(it) }
+        else Toast.makeText(this, "Permission stockage refusée", Toast.LENGTH_SHORT).show()
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-
-        // 📥 Charger / Télécharger les listes de blocage
+        downloadManager = getSystemService()!!
         loadBlockLists()
 
         setContent {
@@ -56,13 +78,15 @@ class MainActivity : ComponentActivity() {
                             modifier = Modifier.fillMaxWidth().padding(8.dp),
                             singleLine = true,
                             trailingIcon = {
-                                TextButton(onClick = { webView?.loadUrl(url) }) {
-                                    Text("Aller")
+                                Row {
+                                    TextButton(onClick = { webView?.loadUrl(url) }) {
+                                        Text("Aller")
+                                    }
                                 }
                             }
                         )
 
-                        // ⏮️ Boutons de navigation
+                        // ⏮️ Boutons + 📥 Télécharger
                         Row(
                             modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp),
                             horizontalArrangement = Arrangement.SpaceEvenly
@@ -70,24 +94,29 @@ class MainActivity : ComponentActivity() {
                             IconButton(onClick = { webView?.goBack() }) { Text("◀") }
                             IconButton(onClick = { webView?.reload() }) { Text("🔄") }
                             IconButton(onClick = { webView?.goForward() }) { Text("▶") }
+                            IconButton(onClick = {
+                                webView?.let { wv ->
+                                    val currentUrl = wv.url ?: return@IconButton
+                                    detectAndDownloadVideo(currentUrl)
+                                }
+                            }) { Text("📥") }
                         }
 
-                        // 🌐 WebView avec blocage pub
+                        // 🌐 WebView
                         AndroidView(
                             factory = { ctx ->
                                 WebView(ctx).apply {
                                     settings.javaScriptEnabled = true
                                     settings.domStorageEnabled = true
+                                    settings.mediaPlaybackRequiresUserGesture = false
 
                                     webViewClient = object : WebViewClient() {
-                                        // 🛡️ BLOQUER LES PUBLICITÉS
                                         override fun shouldInterceptRequest(
                                             view: WebView?,
                                             request: WebResourceRequest
                                         ): WebResourceResponse? {
                                             val host = request.url.host ?: return null
-                                            val isAd = blockedHosts.any { host.contains(it, ignoreCase = true) }
-                                            if (isAd) {
+                                            if (blockedHosts.any { host.contains(it, ignoreCase = true) }) {
                                                 return WebResourceResponse("text/plain", "utf-8", null)
                                             }
                                             return null
@@ -117,29 +146,76 @@ class MainActivity : ComponentActivity() {
         }
     }
 
-    // 📥 Télécharger et charger EasyList + EasyPrivacy
+    // 📥 Détecter et lancer le téléchargement
+    private fun detectAndDownloadVideo(pageUrl: String) {
+        // Extensions vidéo connues
+        val videoExts = listOf(".mp4", ".webm", ".m3u8", ".mkv", ".avi")
+        val isVideoUrl = videoExts.any { pageUrl.contains(it, ignoreCase = true) }
+
+        if (isVideoUrl) {
+            startDownload(pageUrl)
+        } else {
+            Toast.makeText(this, "Recherche vidéo...", Toast.LENGTH_SHORT).show()
+            pendingVideoUrl = pageUrl
+            checkPermissionAndDownload()
+        }
+    }
+
+    private fun checkPermissionAndDownload() {
+        when {
+            Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q -> {
+                pendingVideoUrl?.let { downloadVideo(it) }
+            }
+            ContextCompat.checkSelfPermission(
+                this, Manifest.permission.WRITE_EXTERNAL_STORAGE
+            ) == PackageManager.PERMISSION_GRANTED -> {
+                pendingVideoUrl?.let { downloadVideo(it) }
+            }
+            else -> {
+                permissionLauncher.launch(Manifest.permission.WRITE_EXTERNAL_STORAGE)
+            }
+        }
+    }
+
+    private fun downloadVideo(videoUrl: String) {
+        try {
+            val uri = Uri.parse(videoUrl)
+            val req = DownloadManager.Request(uri).apply {
+                setTitle("Vidéo - ${System.currentTimeMillis()}")
+                setDescription("Téléchargé depuis Ohana Browser")
+                setAllowedNetworkTypes(DownloadManager.Request.NETWORK_WIFI or DownloadManager.Request.NETWORK_MOBILE)
+                setNotificationVisibility(DownloadManager.Request.VISIBILITY_VISIBLE_NOTIFY_COMPLETED)
+                setDestinationInExternalPublicDir(Environment.DIRECTORY_DOWNLOADS, "Ohana_${uri.lastPathSegment}")
+            }
+            downloadManager.enqueue(req)
+            Toast.makeText(this, "📥 Téléchargement lancé !", Toast.LENGTH_SHORT).show()
+        } catch (e: Exception) {
+            Toast.makeText(this, "Erreur : ${e.message}", Toast.LENGTH_SHORT).show()
+        }
+        pendingVideoUrl = null
+    }
+
     private fun loadBlockLists() {
         Thread {
             val lists = listOf(
                 "https://easylist.to/easylist/easylist.txt",
                 "https://easylist.to/easylist/easyprivacy.txt"
             )
-
             lists.forEach { listUrl ->
                 try {
                     val req = Request.Builder().url(listUrl).build()
                     client.newCall(req).execute().use { resp ->
-                        if (resp.isSuccessful) {
-                            BufferedReader(InputStreamReader(resp.body?.byteStream())).use { br ->
+                        if (resp.isSuccessful && resp.body != null) {
+                            BufferedReader(InputStreamReader(resp.body!!.byteStream())).use { br ->
                                 br.lineSequence()
                                     .filter { it.isNotEmpty() && !it.startsWith("!") && it.startsWith("||") }
                                     .map { it.removePrefix("||").split("^").first().trim() }
-                                    .filter { it.isNotEmpty() }
+                                    .filter { it.isNotEmpty() && !it.startsWith("/") }
                                     .forEach { blockedHosts.add(it) }
                             }
                         }
                     }
-                } catch (e: Exception) { /* Ignoré si erreur réseau */ }
+                } catch (e: Exception) {}
             }
         }.start()
     }
