@@ -37,6 +37,6 @@ dependencies {
     implementation("androidx.webkit:webkit:1.7.0")
     implementation("com.squareup.okhttp3:okhttp:4.12.0")
     implementation("com.google.dagger:hilt-android:2.51")
-    implementation("com.google.android.gms:play-services-cast-framework:21.6.0")
+    implementation("com.google.android.gms:play-services-cast-framework:21.5.0")
     ksp("com.google.dagger:hilt-compiler:2.51")
 }
