@@ -83,13 +83,26 @@ class MainActivity : ComponentActivity() {
             MaterialTheme {
                 Surface {
                     var isPrivateMode by remember { mutableStateOf(false) }
-                    var url by remember { mutableStateOf("about:blank") }
+                    // ✅ Barre vide au démarrage → pas besoin d'effacer
+                    var searchText by remember { mutableStateOf("") }
                     var progress by remember { mutableStateOf(0) }
                     var webView by remember { mutableStateOf<WebView?>(null) }
                     var showHistory by remember { mutableStateOf(false) }
                     var showFavorites by remember { mutableStateOf(false) }
                     var history by remember { mutableStateOf(loadHistory()) }
                     var favorites by remember { mutableStateOf(loadFavorites()) }
+
+                    // ✅ Fonction intelligente : URL ou Recherche
+                    val goToUrl = { text: String ->
+                        val trimmed = text.trim()
+                        val url = when {
+                            trimmed.isBlank() -> "https://www.google.com"
+                            trimmed.startsWith("http://") || trimmed.startsWith("https://") -> trimmed
+                            trimmed.contains(".") && !trimmed.contains(" ") -> "https://$trimmed"
+                            else -> "https://www.google.com/search?q=${Uri.encode(trimmed)}"
+                        }
+                        webView?.loadUrl(url)
+                    }
 
                     Column(modifier = Modifier.fillMaxSize()) {
                         if (isPrivateMode) {
@@ -107,19 +120,21 @@ class MainActivity : ComponentActivity() {
                             )
                         }
 
+                        // ✅ BARRE DE RECHERCHE / URL INTELLIGENTE
                         OutlinedTextField(
-                            value = url,
-                            onValueChange = { url = it },
-                            label = { Text("URL") },
+                            value = searchText,
+                            onValueChange = { searchText = it },
+                            placeholder = { Text("Rechercher ou entrer une URL...") },
+                            label = { Text("Recherche / URL") },
                             modifier = Modifier.fillMaxWidth().padding(8.dp),
                             singleLine = true,
                             trailingIcon = {
-                                TextButton(onClick = {
-                                    if (url.isNotBlank() && !url.startsWith("http")) {
-                                        url = "https://$url"
+                                Row {
+                                    if (searchText.isNotBlank()) {
+                                        IconButton(onClick = { searchText = "" }) { Text("✕") }
                                     }
-                                    webView?.loadUrl(url)
-                                }) { Text("Aller") }
+                                    TextButton(onClick = { goToUrl(searchText) }) { Text("Aller") }
+                                }
                             }
                         )
 
@@ -133,7 +148,7 @@ class MainActivity : ComponentActivity() {
                             IconButton(onClick = { showHistory = !showHistory }) { Text("📜") }
                             IconButton(onClick = {
                                 val u = webView?.url ?: return@IconButton
-                                if (u != "about:blank") {
+                                if (!u.isNullOrBlank() && !u.startsWith("about:")) {
                                     toggleFavorite(u, webView?.title ?: u, favorites)
                                     favorites = loadFavorites()
                                 }
@@ -142,21 +157,20 @@ class MainActivity : ComponentActivity() {
                             IconButton(onClick = {
                                 webView?.let { wv ->
                                     val u = wv.url ?: return@IconButton
-                                    if (u != "about:blank") detectAndDownloadVideo(u)
+                                    if (!u.isNullOrBlank() && !u.startsWith("about:")) detectAndDownloadVideo(u)
                                 }
                             }) { Text("📥") }
                             IconButton(onClick = {
                                 webView?.let { wv ->
                                     val u = wv.url ?: return@IconButton
-                                    if (u != "about:blank") castVideo(u)
+                                    if (!u.isNullOrBlank() && !u.startsWith("about:")) castVideo(u)
                                 }
                             }) { Text("📺") }
                             IconButton(onClick = {
                                 isPrivateMode = !isPrivateMode
                                 if (isPrivateMode) clearWebData()
                                 webView?.clearHistory()
-                                url = "about:blank"
-                                webView?.loadUrl(url)
+                                searchText = ""
                             }) { Text(if (isPrivateMode) "🔴" else "🔒") }
                         }
 
@@ -173,7 +187,7 @@ class MainActivity : ComponentActivity() {
                                     LazyColumn {
                                         items(history) { entry ->
                                             Column(Modifier.clickable {
-                                                url = entry.url
+                                                searchText = entry.url
                                                 webView?.loadUrl(entry.url)
                                                 showHistory = false
                                             }.padding(8.dp)) {
@@ -202,7 +216,7 @@ class MainActivity : ComponentActivity() {
                                     LazyColumn {
                                         items(favorites) { entry ->
                                             Column(Modifier.clickable {
-                                                url = entry.url
+                                                searchText = entry.url
                                                 webView?.loadUrl(entry.url)
                                                 showFavorites = false
                                             }.padding(8.dp)) {
@@ -241,7 +255,7 @@ class MainActivity : ComponentActivity() {
 
                                             override fun onPageFinished(view: WebView?, url: String?) {
                                                 super.onPageFinished(view, url)
-                                                if (!isPrivateMode && !url.isNullOrBlank() && url != "about:blank") {
+                                                if (!isPrivateMode && !url.isNullOrBlank() && !url.startsWith("about:")) {
                                                     addToHistory(url, view?.title ?: url)
                                                     history = loadHistory()
                                                 }
@@ -259,11 +273,7 @@ class MainActivity : ComponentActivity() {
                                     }
                                 },
                                 modifier = Modifier.weight(1f),
-                                update = { wv ->
-                                    if (wv.url != url && url.isNotBlank()) {
-                                        wv.loadUrl(url)
-                                    }
-                                }
+                                update = { }
                             )
                         }
                     }
@@ -382,16 +392,4 @@ class MainActivity : ComponentActivity() {
                         if (resp.isSuccessful && resp.body != null) {
                             BufferedReader(InputStreamReader(resp.body!!.byteStream())).use { br ->
                                 br.lineSequence()
-                                    .filter { it.isNotEmpty() && !it.startsWith("!") && it.startsWith("||") }
-                                    .map { it.removePrefix("||").split("^").first().trim() }
-                                    .filter { it.isNotEmpty() && !it.startsWith("/") }
-                                    .forEach { blockedHosts.add(it) }
-                            }
-                        }
-                    }
-                } catch (_: Exception) {}
-            }
-        }.start()
-    }
-}
-
+                                   
