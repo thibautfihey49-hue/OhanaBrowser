@@ -24,7 +24,6 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
-import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
@@ -42,7 +41,6 @@ import java.text.SimpleDateFormat
 import java.util.*
 import java.util.concurrent.ConcurrentHashMap
 
-// 📚 Données pour Historique et Favoris
 data class BrowserEntry(
     val url: String,
     val title: String,
@@ -51,22 +49,14 @@ data class BrowserEntry(
 
 @AndroidEntryPoint
 class MainActivity : ComponentActivity() {
-    // 🛡️ Blocage publicités
     private val blockedHosts = ConcurrentHashMap.newKeySet<String>()
     private val client = OkHttpClient()
-
-    // 📥 Téléchargement
     private var pendingVideoUrl: String? = null
     private lateinit var downloadManager: DownloadManager
-
-    // 📺 Cast
     private var castContext: CastContext? = null
-
-    // 💾 Stockage persistant
     private lateinit var prefs: SharedPreferences
     private val dateFormat = SimpleDateFormat("dd/MM HH:mm", Locale.FRANCE)
 
-    // 🔑 Permission stockage
     private val permissionLauncher = registerForActivityResult(
         ActivityResultContracts.RequestPermission()
     ) { isGranted ->
@@ -76,22 +66,16 @@ class MainActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-
-        // 💾 Initialiser le stockage
         prefs = getSharedPreferences("OhanaBrowser", Context.MODE_PRIVATE)
-
-        // 📺 Initialiser Cast
         try {
             castContext = CastContext.getSharedInstance(this)
-        } catch (e: Exception) { /* Cast non disponible */ }
-
+        } catch (e: Exception) {}
         downloadManager = getSystemService()!!
         loadBlockLists()
 
         setContent {
             MaterialTheme {
                 Surface {
-                    // 🔒 Mode Privé
                     var isPrivateMode by remember { mutableStateOf(false) }
                     var url by remember { mutableStateOf("https://google.com") }
                     var progress by remember { mutableStateOf(0) }
@@ -101,13 +85,7 @@ class MainActivity : ComponentActivity() {
                     var history by remember { mutableStateOf(loadHistory()) }
                     var favorites by remember { mutableStateOf(loadFavorites()) }
 
-                    // 🔒 Couleur de fond selon le mode
-                    val bgColor = if (isPrivateMode) Color(0xFF2A2A2A) else MaterialTheme.colorScheme.background
-                    val textColor = if (isPrivateMode) Color.LightGray else MaterialTheme.colorScheme.onBackground
-
-                    // 🌐 Page principale
                     Column(modifier = Modifier.fillMaxSize()) {
-                        // 🔒 Bannière Mode Privé
                         if (isPrivateMode) {
                             Surface(color = Color(0xFF662222), modifier = Modifier.fillMaxWidth()) {
                                 Text(" 🔒 NAVIGATION PRIVÉE — Aucun historique ne sera sauvegardé",
@@ -117,7 +95,6 @@ class MainActivity : ComponentActivity() {
                             }
                         }
 
-                        // 📊 Barre de progression
                         if (progress in 1..99) {
                             LinearProgressIndicator(
                                 progress = progress / 100f,
@@ -125,51 +102,37 @@ class MainActivity : ComponentActivity() {
                             )
                         }
 
-                        // 🔗 Barre d'adresse
                         OutlinedTextField(
                             value = url,
                             onValueChange = { url = it },
-                            label = { Text("URL", color = textColor) },
+                            label = { Text("URL") },
                             modifier = Modifier.fillMaxWidth().padding(8.dp),
                             singleLine = true,
                             trailingIcon = {
                                 Row {
-                                    TextButton(onClick = { webView?.loadUrl(url) }) {
-                                        Text("Aller")
-                                    }
+                                    TextButton(onClick = { webView?.loadUrl(url) }) { Text("Aller") }
                                 }
                             }
                         )
 
-                        // ⏮️ Boutons de navigation + Actions
-                        Row(
-                            modifier = Modifier.fillMaxWidth().padding(horizontal = 2.dp),
-                            horizontalArrangement = Arrangement.SpaceEvenly
-                        ) {
+                        Row(modifier = Modifier.fillMaxWidth().padding(horizontal = 2.dp),
+                            horizontalArrangement = Arrangement.SpaceEvenly) {
                             IconButton(onClick = { webView?.goBack() }) { Text("◀") }
                             IconButton(onClick = { webView?.reload() }) { Text("🔄") }
                             IconButton(onClick = { webView?.goForward() }) { Text("▶") }
                             IconButton(onClick = { showHistory = !showHistory }) { Text("📜") }
                             IconButton(onClick = {
-                                val currentUrl = webView?.url ?: return@IconButton
-                                val title = webView?.title ?: currentUrl
-                                toggleFavorite(currentUrl, title, favorites)
+                                val u = webView?.url ?: return@IconButton
+                                toggleFavorite(u, webView?.title ?: u, favorites)
                                 favorites = loadFavorites()
                             }) { Text("⭐") }
                             IconButton(onClick = { showFavorites = !showFavorites }) { Text("📂") }
                             IconButton(onClick = {
-                                webView?.let { wv ->
-                                    val currentUrl = wv.url ?: return@IconButton
-                                    detectAndDownloadVideo(currentUrl)
-                                }
+                                webView?.let { detectAndDownloadVideo(it.url ?: return@IconButton) }
                             }) { Text("📥") }
                             IconButton(onClick = {
-                                webView?.let { wv ->
-                                    val currentUrl = wv.url ?: return@IconButton
-                                    castVideo(currentUrl)
-                                }
+                                webView?.let { castVideo(it.url ?: return@IconButton) }
                             }) { Text("📺") }
-                            // 🔒 Bouton Mode Privé
                             IconButton(onClick = {
                                 isPrivateMode = !isPrivateMode
                                 if (isPrivateMode) {
@@ -184,7 +147,6 @@ class MainActivity : ComponentActivity() {
                             }) { Text(if (isPrivateMode) "🔴" else "🔒") }
                         }
 
-                        // 📜 Historique (masqué en mode privé)
                         if (showHistory && !isPrivateMode) {
                             Card(modifier = Modifier.fillMaxWidth().weight(1f).padding(8.dp)) {
                                 Column {
@@ -210,7 +172,6 @@ class MainActivity : ComponentActivity() {
                             }
                         }
 
-                        // 📂 Favoris
                         if (showFavorites) {
                             Card(modifier = Modifier.fillMaxWidth().weight(1f).padding(8.dp)) {
                                 Column {
@@ -235,7 +196,6 @@ class MainActivity : ComponentActivity() {
                             }
                         }
 
-                        // 🌐 WebView
                         if (!showHistory && !showFavorites) {
                             AndroidView(
                                 factory = { ctx ->
@@ -263,13 +223,9 @@ class MainActivity : ComponentActivity() {
 
                                             override fun onPageFinished(view: WebView?, url: String?) {
                                                 super.onPageFinished(view, url)
-                                                // 🔒 En mode privé : on n'enregistre PAS l'historique
                                                 if (!isPrivateMode) {
-                                                    url?.let { u ->
-                                                        val title = view?.title ?: u
-                                                        addToHistory(u, title)
-                                                        history = loadHistory()
-                                                    }
+                                                    url?.let { addToHistory(it, view?.title ?: it) }
+                                                    history = loadHistory()
                                                 }
                                             }
                                         }
@@ -293,15 +249,12 @@ class MainActivity : ComponentActivity() {
         }
     }
 
-    // 🔒 Effacer cookies, cache et données WebView
     private fun clearWebData() {
-        val cookieManager = CookieManager.getInstance()
-        cookieManager.removeAllCookies {}
-        cookieManager.flush()
-        // WebView data cleared on toggle
+        val cm = CookieManager.getInstance()
+        cm.removeAllCookies {}
+        cm.flush()
     }
 
-    // 📜 Historique : Charger / Ajouter
     private fun loadHistory(): List<BrowserEntry> {
         val urls = prefs.getStringSet("history_urls", emptySet()) ?: emptySet()
         val titles = prefs.getStringSet("history_titles", emptySet()) ?: emptySet()
@@ -323,7 +276,6 @@ class MainActivity : ComponentActivity() {
             .apply()
     }
 
-    // ⭐ Favoris : Charger / Ajouter / Supprimer
     private fun loadFavorites(): List<BrowserEntry> {
         val urls = prefs.getStringSet("fav_urls", emptySet()) ?: emptySet()
         val titles = prefs.getStringSet("fav_titles", emptySet()) ?: emptySet()
@@ -346,16 +298,13 @@ class MainActivity : ComponentActivity() {
             .apply()
     }
 
-    // 📺 Diffuser la vidéo sur TV
     private fun castVideo(pageUrl: String) {
         val videoExts = listOf(".mp4", ".webm", ".m3u8", ".mkv", ".avi")
         val isVideoUrl = videoExts.any { pageUrl.contains(it, ignoreCase = true) }
-
         if (castContext == null) {
             Toast.makeText(this, "📺 Cast non disponible", Toast.LENGTH_SHORT).show()
             return
         }
-
         if (isVideoUrl) {
             Toast.makeText(this, "📺 Recherche appareil...", Toast.LENGTH_SHORT).show()
             val uri = Uri.parse(pageUrl)
@@ -365,11 +314,9 @@ class MainActivity : ComponentActivity() {
         }
     }
 
-    // 📥 Détecter et lancer le téléchargement
     private fun detectAndDownloadVideo(pageUrl: String) {
         val videoExts = listOf(".mp4", ".webm", ".m3u8", ".mkv", ".avi")
         val isVideoUrl = videoExts.any { pageUrl.contains(it, ignoreCase = true) }
-
         if (isVideoUrl) {
             pendingVideoUrl = pageUrl
             checkPermissionAndDownload()
@@ -380,17 +327,10 @@ class MainActivity : ComponentActivity() {
 
     private fun checkPermissionAndDownload() {
         when {
-            Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q -> {
-                pendingVideoUrl?.let { downloadVideo(it) }
-            }
-            ContextCompat.checkSelfPermission(
-                this, Manifest.permission.WRITE_EXTERNAL_STORAGE
-            ) == PackageManager.PERMISSION_GRANTED -> {
-                pendingVideoUrl?.let { downloadVideo(it) }
-            }
-            else -> {
-                permissionLauncher.launch(Manifest.permission.WRITE_EXTERNAL_STORAGE)
-            }
+            Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q -> pendingVideoUrl?.let { downloadVideo(it) }
+            ContextCompat.checkSelfPermission(this, Manifest.permission.WRITE_EXTERNAL_STORAGE
+            ) == PackageManager.PERMISSION_GRANTED -> pendingVideoUrl?.let { downloadVideo(it) }
+            else -> permissionLauncher.launch(Manifest.permission.WRITE_EXTERNAL_STORAGE)
         }
     }
 
@@ -404,4 +344,36 @@ class MainActivity : ComponentActivity() {
                 setNotificationVisibility(DownloadManager.Request.VISIBILITY_VISIBLE_NOTIFY_COMPLETED)
                 setDestinationInExternalPublicDir(Environment.DIRECTORY_DOWNLOADS, "Ohana_${uri.lastPathSegment}")
             }
-            downloa
+            downloadManager.enqueue(req)
+            Toast.makeText(this, "📥 Téléchargement lancé !", Toast.LENGTH_SHORT).show()
+        } catch (e: Exception) {
+            Toast.makeText(this, "Erreur : ${e.message}", Toast.LENGTH_SHORT).show()
+        }
+        pendingVideoUrl = null
+    }
+
+    private fun loadBlockLists() {
+        Thread {
+            val lists = listOf(
+                "https://easylist.to/easylist/easylist.txt",
+                "https://easylist.to/easylist/easyprivacy.txt"
+            )
+            lists.forEach { listUrl ->
+                try {
+                    val req = Request.Builder().url(listUrl).build()
+                    client.newCall(req).execute().use { resp ->
+                        if (resp.isSuccessful && resp.body != null) {
+                            BufferedReader(InputStreamReader(resp.body!!.byteStream())).use { br ->
+                                br.lineSequence()
+                                    .filter { it.isNotEmpty() && !it.startsWith("!") && it.startsWith("||") }
+                                    .map { it.removePrefix("||").split("^").first().trim() }
+                                    .filter { it.isNotEmpty() && !it.startsWith("/") }
+                                    .forEach { blockedHosts.add(it) }
+                            }
+                        }
+                    }
+                } catch (e: Exception) {}
+            }
+        }.start()
+    }
+}
