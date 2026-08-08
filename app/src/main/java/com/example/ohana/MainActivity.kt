@@ -27,6 +27,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.core.content.ContextCompat
 import androidx.core.content.getSystemService
+import com.google.android.gms.cast.framework.CastContext
 import dagger.hilt.android.AndroidEntryPoint
 import okhttp3.*
 import java.io.BufferedReader
@@ -72,11 +73,11 @@ class MainActivity : ComponentActivity() {
         prefs = getSharedPreferences("OhanaBrowser", Context.MODE_PRIVATE)
         downloadManager = getSystemService()!!
 
-        // ⚡ Initialisation DIFFÉRÉE : ne ralentit PAS le démarrage
+        // ⚡ Initialisation DIFFÉRÉE → démarrage instantané
         android.os.Handler(mainLooper).postDelayed({
             try { castContext = CastContext.getSharedInstance(this) } catch (_: Exception) {}
             loadBlockLists()
-        }, 800) // Charge après l'affichage → démarrage instantané
+        }, 800)
 
         setContent {
             MaterialTheme {
@@ -393,3 +394,4 @@ class MainActivity : ComponentActivity() {
         }.start()
     }
 }
+
