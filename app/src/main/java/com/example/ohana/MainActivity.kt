@@ -32,7 +32,12 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.core.content.ContextCompat
 import androidx.core.content.getSystemService
+import com.google.android.gms.cast.MediaInfo
+import com.google.android.gms.cast.MediaLoadRequestData
 import com.google.android.gms.cast.framework.CastContext
+import com.google.android.gms.cast.framework.CastSession
+import com.google.android.gms.cast.framework.SessionManagerListener
+import com.google.android.gms.common.images.WebImage
 import dagger.hilt.android.AndroidEntryPoint
 import okhttp3.*
 import java.io.BufferedReader
@@ -61,11 +66,32 @@ class MainActivity : ComponentActivity() {
     }
 
     private var pendingVideoUrl: String? = null
+    private var detectedVideoUrl: String? = null
     private lateinit var downloadManager: DownloadManager
     private var castContext: CastContext? = null
+    private var castSession: CastSession? = null
     private lateinit var prefs: SharedPreferences
     private val dateFormat = SimpleDateFormat("dd/MM HH:mm", Locale.FRANCE)
     private var mainWebView: WebView? = null
+
+    private val castListener = object : SessionManagerListener<CastSession> {
+        override fun onSessionStarting(session: CastSession) {}
+        override fun onSessionStarted(session: CastSession, sessionId: String) {
+            castSession = session
+        }
+        override fun onSessionEnding(session: CastSession) {}
+        override fun onSessionEnded(session: CastSession, error: Int) {
+            castSession = null
+        }
+        override fun onSessionResuming(session: CastSession, sessionId: String) {}
+        override fun onSessionResumed(session: CastSession, sessionId: String) {
+            castSession = session
+        }
+        override fun onSessionSuspended(session: CastSession, reason: Int) {
+            castSession = null
+        }
+        override fun onSessionResumeFailed(session: CastSession, error: Int) {}
+    }
 
     private val permissionLauncher = registerForActivityResult(
         ActivityResultContracts.RequestPermission()
@@ -82,8 +108,14 @@ class MainActivity : ComponentActivity() {
         prefs = getSharedPreferences("OhanaBrowser", Context.MODE_PRIVATE)
         downloadManager = getSystemService()!!
 
+        try {
+            castContext = CastContext.getSharedInstance(this)
+            castContext?.sessionManager?.addSessionManagerListener(castListener, CastSession::class.java)
+        } catch (e: Exception) {
+            Toast.makeText(this, "📺 Cast non disponible: ${e.message}", Toast.LENGTH_LONG).show()
+        }
+
         android.os.Handler(mainLooper).postDelayed({
-            try { castContext = CastContext.getSharedInstance(this) } catch (_: Exception) {}
             loadBlockLists()
         }, 500)
 
@@ -173,15 +205,20 @@ class MainActivity : ComponentActivity() {
                             }) { Text("⭐") }
                             IconButton(onClick = { showFavorites = !showFavorites }) { Text("📂") }
                             IconButton(onClick = {
-                                val u = mainWebView?.url ?: return@IconButton
-                                if (!u.isNullOrBlank() && !u.startsWith("about:")) {
-                                    checkAndDownloadVideo(u)
+                                val videoUrl = detectedVideoUrl ?: mainWebView?.url
+                                if (!videoUrl.isNullOrBlank()) {
+                                    checkAndDownloadVideo(videoUrl)
+                                } else {
+                                    Toast.makeText(this@MainActivity, "⚠️ Aucune vidéo détectée", Toast.LENGTH_SHORT).show()
                                 }
                             }) { Text("📥") }
                             IconButton(onClick = {
-                                val u = mainWebView?.url ?: return@IconButton
-                                if (!u.isNullOrBlank() && !u.startsWith("about:")) {
-                                    castVideo(u)
+                                val videoUrl = detectedVideoUrl ?: mainWebView?.url
+                                val pageTitle = mainWebView?.title ?: "Vidéo"
+                                if (!videoUrl.isNullOrBlank()) {
+                                    castVideo(videoUrl, pageTitle)
+                                } else {
+                                    Toast.makeText(this@MainActivity, "⚠️ Aucune vidéo détectée", Toast.LENGTH_SHORT).show()
                                 }
                             }) { Text("📺") }
                             IconButton(onClick = {
@@ -189,6 +226,7 @@ class MainActivity : ComponentActivity() {
                                 if (isPrivateMode) clearWebData()
                                 mainWebView?.clearHistory()
                                 searchText = ""
+                                detectedVideoUrl = null
                             }) { Text(if (isPrivateMode) "🔴" else "🔒") }
                         }
 
@@ -258,12 +296,29 @@ class MainActivity : ComponentActivity() {
                                         settings.allowContentAccess = false
                                         CookieManager.getInstance().setAcceptThirdPartyCookies(this, false)
 
+                                        addJavascriptInterface(object {
+                                            @JavascriptInterface
+                                            fun setVideoUrl(url: String?) {
+                                                detectedVideoUrl = url
+                                                if (!url.isNullOrBlank()) {
+                                                    android.os.Handler(mainLooper).post {
+                                                        Toast.makeText(this@MainActivity, "✅ Vidéo détectée !", Toast.LENGTH_SHORT).show()
+                                                    }
+                                                }
+                                            }
+                                        }, "OhanaBrowser")
+
                                         webViewClient = object : WebViewClient() {
                                             override fun shouldInterceptRequest(
                                                 view: WebView?,
                                                 request: WebResourceRequest?
                                             ): WebResourceResponse? {
                                                 val host = request?.url?.host ?: return null
+                                                val url = request?.url.toString()
+                                                val videoExts = listOf(".mp4", ".webm", ".m3u8", ".mkv", ".avi", ".mpd")
+                                                if (videoExts.any { url.contains(it, true) }) {
+                                                    detectedVideoUrl = url
+                                                }
                                                 if (blockedHosts.any { host.contains(it, true) }) {
                                                     return WebResourceResponse("text/plain", "utf-8", null)
                                                 }
@@ -276,6 +331,24 @@ class MainActivity : ComponentActivity() {
                                                     addToHistory(url, view?.title ?: url)
                                                     history = loadHistory()
                                                 }
+                                                view?.evaluateJavascript("""
+                                                    (function(){
+                                                        var v = document.querySelector('video');
+                                                        if(v && v.src) {
+                                                            OhanaBrowser.setVideoUrl(v.src);
+                                                            return v.src;
+                                                        }
+                                                        var sources = document.querySelectorAll('source');
+                                                        for(var s of sources){
+                                                            if(s.src && (s.src.includes('.mp4')||s.src.includes('.webm')||s.src.includes('.m3u8')||s.src.includes('.mkv'))){
+                                                                OhanaBrowser.setVideoUrl(s.src);
+                                                                return s.src;
+                                                            }
+                                                        }
+                                                        OhanaBrowser.setVideoUrl(null);
+                                                        return null;
+                                                    })();
+                                                """, null)
                                             }
                                         }
 
@@ -296,6 +369,11 @@ class MainActivity : ComponentActivity() {
                 }
             }
         }
+    }
+
+    override fun onDestroy() {
+        castContext?.sessionManager?.removeSessionManagerListener(castListener)
+        super.onDestroy()
     }
 
     private fun clearWebData() {
@@ -346,34 +424,56 @@ class MainActivity : ComponentActivity() {
             .apply()
     }
 
-    private fun castVideo(pageUrl: String) {
-        val exts = listOf(".mp4", ".webm", ".m3u8", ".mkv", ".avi")
-        val isVideo = exts.any { pageUrl.contains(it, true) }
-        if (castContext == null) {
-            Toast.makeText(this, "📺 Cast non disponible", Toast.LENGTH_SHORT).show()
+    private fun castVideo(videoUrl: String, title: String) {
+        val session = castSession
+        if (session == null || !session.isConnected) {
+            Toast.makeText(this, "📺 Appuyez d'abord sur l'icône Cast pour connecter un appareil", Toast.LENGTH_LONG).show()
             return
         }
-        if (isVideo) {
-            Toast.makeText(this, "📺 Vidéo détectée", Toast.LENGTH_SHORT).show()
-        } else {
-            Toast.makeText(this, "⚠️ Pas de lien vidéo direct", Toast.LENGTH_SHORT).show()
+
+        val uri = Uri.parse(videoUrl)
+        val mimeType = when {
+            videoUrl.endsWith(".mp4", true) -> "video/mp4"
+            videoUrl.endsWith(".webm", true) -> "video/webm"
+            videoUrl.endsWith(".m3u8", true) -> "application/x-mpegURL"
+            videoUrl.endsWith(".mpd", true) -> "application/dash+xml"
+            else -> "video/mp4"
         }
+
+        val metadata = com.google.android.gms.cast.MediaMetadata(com.google.android.gms.cast.MediaMetadata.MEDIA_TYPE_MOVIE)
+        metadata.putString(com.google.android.gms.cast.MediaMetadata.KEY_TITLE, title)
+        metadata.addImage(WebImage(uri))
+
+        val mediaInfo = MediaInfo.Builder(uri)
+            .setStreamType(MediaInfo.STREAM_TYPE_BUFFERED)
+            .setContentType(mimeType)
+            .setMetadata(metadata)
+            .build()
+
+        val requestData = MediaLoadRequestData.Builder()
+            .setMediaInfo(mediaInfo)
+            .setAutoplay(true)
+            .build()
+
+        session.remoteMediaClient.load(requestData)
+        Toast.makeText(this, "📺 Lecture sur appareil Cast lancée !", Toast.LENGTH_SHORT).show()
     }
 
     private fun checkAndDownloadVideo(pageUrl: String) {
-        val exts = listOf(".mp4", ".webm", ".m3u8", ".mkv", ".avi")
-        val isVideo = exts.any { pageUrl.contains(it, true) }
+        val url = detectedVideoUrl ?: pageUrl
+        val videoExts = listOf(".mp4", ".webm", ".m3u8", ".mkv", ".avi", ".mpd")
+        val isVideo = videoExts.any { url.contains(it, true) }
         if (isVideo) {
-            pendingVideoUrl = pageUrl
+            pendingVideoUrl = url
             when {
-                Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q -> downloadVideoDirect(pageUrl)
+                Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q -> downloadVideoDirect(url)
                 ContextCompat.checkSelfPermission(
                     this, Manifest.permission.WRITE_EXTERNAL_STORAGE
-                ) == PackageManager.PERMISSION_GRANTED -> downloadVideoDirect(pageUrl)
+                ) == PackageManager.PERMISSION_GRANTED -> downloadVideoDirect(url)
                 else -> permissionLauncher.launch(Manifest.permission.WRITE_EXTERNAL_STORAGE)
             }
         } else {
-            Toast.makeText(this, "⚠️ Pas de lien vidéo direct", Toast.LENGTH_SHORT).show()
+            Toast.makeText(this, "⚠️ Aucune vidéo détectée sur cette page", Toast.LENGTH_SHORT).show()
         }
     }
 
