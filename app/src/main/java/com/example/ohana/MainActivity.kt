@@ -148,12 +148,12 @@ class MainActivity : ComponentActivity() {
 
     // 📥 Détecter et lancer le téléchargement
     private fun detectAndDownloadVideo(pageUrl: String) {
-        // Extensions vidéo connues
         val videoExts = listOf(".mp4", ".webm", ".m3u8", ".mkv", ".avi")
         val isVideoUrl = videoExts.any { pageUrl.contains(it, ignoreCase = true) }
 
         if (isVideoUrl) {
-            startDownload(pageUrl)
+            pendingVideoUrl = pageUrl
+            checkPermissionAndDownload()
         } else {
             Toast.makeText(this, "Recherche vidéo...", Toast.LENGTH_SHORT).show()
             pendingVideoUrl = pageUrl
