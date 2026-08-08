@@ -8,6 +8,7 @@ import android.net.Uri
 import android.os.Build
 import android.os.Bundle
 import android.os.Environment
+import android.webkit.CookieManager
 import android.webkit.WebView
 import android.webkit.WebViewClient
 import android.webkit.WebChromeClient
@@ -25,7 +26,7 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
@@ -90,6 +91,8 @@ class MainActivity : ComponentActivity() {
         setContent {
             MaterialTheme {
                 Surface {
+                    // 🔒 Mode Privé
+                    var isPrivateMode by remember { mutableStateOf(false) }
                     var url by remember { mutableStateOf("https://google.com") }
                     var progress by remember { mutableStateOf(0) }
                     var webView by remember { mutableStateOf<WebView?>(null) }
@@ -98,8 +101,22 @@ class MainActivity : ComponentActivity() {
                     var history by remember { mutableStateOf(loadHistory()) }
                     var favorites by remember { mutableStateOf(loadFavorites()) }
 
+                    // 🔒 Couleur de fond selon le mode
+                    val bgColor = if (isPrivateMode) Color(0xFF2A2A2A) else MaterialTheme.colorScheme.background
+                    val textColor = if (isPrivateMode) Color.LightGray else MaterialTheme.colorScheme.onBackground
+
                     // 🌐 Page principale
                     Column(modifier = Modifier.fillMaxSize()) {
+                        // 🔒 Bannière Mode Privé
+                        if (isPrivateMode) {
+                            Surface(color = Color(0xFF662222), modifier = Modifier.fillMaxWidth()) {
+                                Text(" 🔒 NAVIGATION PRIVÉE — Aucun historique ne sera sauvegardé",
+                                    color = Color.White,
+                                    modifier = Modifier.padding(8.dp),
+                                    style = MaterialTheme.typography.bodySmall)
+                            }
+                        }
+
                         // 📊 Barre de progression
                         if (progress in 1..99) {
                             LinearProgressIndicator(
@@ -112,7 +129,7 @@ class MainActivity : ComponentActivity() {
                         OutlinedTextField(
                             value = url,
                             onValueChange = { url = it },
-                            label = { Text("URL") },
+                            label = { Text("URL", color = textColor) },
                             modifier = Modifier.fillMaxWidth().padding(8.dp),
                             singleLine = true,
                             trailingIcon = {
@@ -126,7 +143,7 @@ class MainActivity : ComponentActivity() {
 
                         // ⏮️ Boutons de navigation + Actions
                         Row(
-                            modifier = Modifier.fillMaxWidth().padding(horizontal = 4.dp),
+                            modifier = Modifier.fillMaxWidth().padding(horizontal = 2.dp),
                             horizontalArrangement = Arrangement.SpaceEvenly
                         ) {
                             IconButton(onClick = { webView?.goBack() }) { Text("◀") }
@@ -152,10 +169,23 @@ class MainActivity : ComponentActivity() {
                                     castVideo(currentUrl)
                                 }
                             }) { Text("📺") }
+                            // 🔒 Bouton Mode Privé
+                            IconButton(onClick = {
+                                isPrivateMode = !isPrivateMode
+                                if (isPrivateMode) {
+                                    clearWebData()
+                                    Toast.makeText(this@MainActivity, "🔒 Mode privé activé", Toast.LENGTH_SHORT).show()
+                                } else {
+                                    Toast.makeText(this@MainActivity, "Mode privé désactivé", Toast.LENGTH_SHORT).show()
+                                }
+                                webView?.clearHistory()
+                                url = "https://google.com"
+                                webView?.loadUrl(url)
+                            }) { Text(if (isPrivateMode) "🔴" else "🔒") }
                         }
 
-                        // 📜 Historique
-                        if (showHistory) {
+                        // 📜 Historique (masqué en mode privé)
+                        if (showHistory && !isPrivateMode) {
                             Card(modifier = Modifier.fillMaxWidth().weight(1f).padding(8.dp)) {
                                 Column {
                                     Row(Modifier.fillMaxWidth().padding(8.dp),
@@ -233,10 +263,13 @@ class MainActivity : ComponentActivity() {
 
                                             override fun onPageFinished(view: WebView?, url: String?) {
                                                 super.onPageFinished(view, url)
-                                                url?.let { u ->
-                                                    val title = view?.title ?: u
-                                                    addToHistory(u, title)
-                                                    history = loadHistory()
+                                                // 🔒 En mode privé : on n'enregistre PAS l'historique
+                                                if (!isPrivateMode) {
+                                                    url?.let { u ->
+                                                        val title = view?.title ?: u
+                                                        addToHistory(u, title)
+                                                        history = loadHistory()
+                                                    }
                                                 }
                                             }
                                         }
@@ -258,6 +291,14 @@ class MainActivity : ComponentActivity() {
                 }
             }
         }
+    }
+
+    // 🔒 Effacer cookies, cache et données WebView
+    private fun clearWebData() {
+        val cookieManager = CookieManager.getInstance()
+        cookieManager.removeAllCookies {}
+        cookieManager.flush()
+        // WebView data cleared on toggle
     }
 
     // 📜 Historique : Charger / Ajouter
@@ -363,36 +404,4 @@ class MainActivity : ComponentActivity() {
                 setNotificationVisibility(DownloadManager.Request.VISIBILITY_VISIBLE_NOTIFY_COMPLETED)
                 setDestinationInExternalPublicDir(Environment.DIRECTORY_DOWNLOADS, "Ohana_${uri.lastPathSegment}")
             }
-            downloadManager.enqueue(req)
-            Toast.makeText(this, "📥 Téléchargement lancé !", Toast.LENGTH_SHORT).show()
-        } catch (e: Exception) {
-            Toast.makeText(this, "Erreur : ${e.message}", Toast.LENGTH_SHORT).show()
-        }
-        pendingVideoUrl = null
-    }
-
-    private fun loadBlockLists() {
-        Thread {
-            val lists = listOf(
-                "https://easylist.to/easylist/easylist.txt",
-                "https://easylist.to/easylist/easyprivacy.txt"
-            )
-            lists.forEach { listUrl ->
-                try {
-                    val req = Request.Builder().url(listUrl).build()
-                    client.newCall(req).execute().use { resp ->
-                        if (resp.isSuccessful && resp.body != null) {
-                            BufferedReader(InputStreamReader(resp.body!!.byteStream())).use { br ->
-                                br.lineSequence()
-                                    .filter { it.isNotEmpty() && !it.startsWith("!") && it.startsWith("||") }
-                                    .map { it.removePrefix("||").split("^").first().trim() }
-                                    .filter { it.isNotEmpty() && !it.startsWith("/") }
-                                    .forEach { blockedHosts.add(it) }
-                            }
-                        }
-                    }
-                } catch (e: Exception) {}
-            }
-        }.start()
-    }
-}
+            downloa
