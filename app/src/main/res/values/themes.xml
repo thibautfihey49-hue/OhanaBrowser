@@ -1,0 +1,4 @@
+<?xml version="1.0"?>
+<resources>
+    <style name="Theme.Ohana" parent="android:Theme.Material.Light.NoActionBar"/>
+</resources>
