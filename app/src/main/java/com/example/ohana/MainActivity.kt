@@ -65,9 +65,7 @@ class MainActivity : ComponentActivity() {
         ActivityResultContracts.RequestPermission()
     ) { isGranted ->
         if (isGranted) {
-            pendingVideoUrl?.let { safeUrl ->
-                doDownloadVideo(safeUrl)
-            }
+            pendingVideoUrl?.let { downloadVideoDirect(it) }
         } else {
             Toast.makeText(this, "Permission stockage refusée", Toast.LENGTH_SHORT).show()
         }
@@ -159,7 +157,7 @@ class MainActivity : ComponentActivity() {
                                 webView?.let { wv ->
                                     val u = wv.url ?: return@IconButton
                                     if (!u.isNullOrBlank() && !u.startsWith("about:")) {
-                                        detectAndDownloadVideo(u)
+                                        checkAndDownloadVideo(u)
                                     }
                                 }
                             }) { Text("📥") }
@@ -349,39 +347,33 @@ class MainActivity : ComponentActivity() {
         }
     }
 
-    private fun detectAndDownloadVideo(pageUrl: String) {
+    private fun checkAndDownloadVideo(pageUrl: String) {
         val exts = listOf(".mp4", ".webm", ".m3u8", ".mkv", ".avi")
         val isVideo = exts.any { pageUrl.contains(it, true) }
         if (isVideo) {
             pendingVideoUrl = pageUrl
             when {
-                Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q -> {
-                    doDownloadVideo(pageUrl)
-                }
+                Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q -> downloadVideoDirect(pageUrl)
                 ContextCompat.checkSelfPermission(
                     this, Manifest.permission.WRITE_EXTERNAL_STORAGE
-                ) == PackageManager.PERMISSION_GRANTED -> {
-                    doDownloadVideo(pageUrl)
-                }
-                else -> {
-                    permissionLauncher.launch(Manifest.permission.WRITE_EXTERNAL_STORAGE)
-                }
+                ) == PackageManager.PERMISSION_GRANTED -> downloadVideoDirect(pageUrl)
+                else -> permissionLauncher.launch(Manifest.permission.WRITE_EXTERNAL_STORAGE)
             }
         } else {
             Toast.makeText(this, "⚠️ Pas de lien vidéo direct", Toast.LENGTH_SHORT).show()
         }
     }
 
-    private fun doDownloadVideo(videoUrl: String) {
+    private fun downloadVideoDirect(videoUrl: String) {
         val uri = Uri.parse(videoUrl)
         try {
-            val request = DownloadManager.Request(uri)
-            request.setTitle("Vidéo - ${System.currentTimeMillis()}")
-            request.setDescription("Téléchargé depuis Ohana Browser")
-            request.setAllowedNetworkTypes(DownloadManager.Request.NETWORK_WIFI or DownloadManager.Request.NETWORK_MOBILE)
-            request.setNotificationVisibility(DownloadManager.Request.VISIBILITY_VISIBLE_NOTIFY_COMPLETED)
-            request.setDestinationInExternalPublicDir(Environment.DIRECTORY_DOWNLOADS, "Ohana_${uri.lastPathSegment}")
-            downloadManager.enqueue(request)
+            val req = DownloadManager.Request(uri)
+            req.setTitle("Vidéo - ${System.currentTimeMillis()}")
+            req.setDescription("Téléchargé depuis Ohana Browser")
+            req.setAllowedNetworkTypes(DownloadManager.Request.NETWORK_WIFI or DownloadManager.Request.NETWORK_MOBILE)
+            req.setNotificationVisibility(DownloadManager.Request.VISIBILITY_VISIBLE_NOTIFY_COMPLETED)
+            req.setDestinationInExternalPublicDir(Environment.DIRECTORY_DOWNLOADS, "Ohana_${uri.lastPathSegment}")
+            downloadManager.enqueue(req)
             Toast.makeText(this, "📥 Téléchargement lancé !", Toast.LENGTH_SHORT).show()
         } catch (e: Exception) {
             Toast.makeText(this, "Erreur : ${e.message}", Toast.LENGTH_SHORT).show()
@@ -400,4 +392,6 @@ class MainActivity : ComponentActivity() {
                     val req = Request.Builder().url(url).build()
                     okHttpClient.newCall(req).execute().use { resp ->
                         if (resp.isSuccessful && resp.body != null) {
-                            BufferedReader(InputStreamReader(resp.body!!.byt
+                            BufferedReader(InputStreamReader(resp.body!!.byteStream())).use { br ->
+                                br.lineSequence()
+                                    .filter { it.isNotEmpty() && !it.startsWith("!") && it.startsWith("|
