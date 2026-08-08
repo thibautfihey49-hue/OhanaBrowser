@@ -80,6 +80,7 @@ class MainActivity : ComponentActivity() {
         override fun onSessionStarted(session: CastSession, sessionId: String) {
             castSession = session
         }
+        override fun onSessionStartFailed(session: CastSession, error: Int) {}
         override fun onSessionEnding(session: CastSession) {}
         override fun onSessionEnded(session: CastSession, error: Int) {
             castSession = null
@@ -88,10 +89,10 @@ class MainActivity : ComponentActivity() {
         override fun onSessionResumed(session: CastSession, isLoaded: Boolean) {
             castSession = session
         }
+        override fun onSessionResumeFailed(session: CastSession, error: Int) {}
         override fun onSessionSuspended(session: CastSession, reason: Int) {
             castSession = null
         }
-        override fun onSessionResumeFailed(session: CastSession, error: Int) {}
     }
 
     private val permissionLauncher = registerForActivityResult(
@@ -373,7 +374,7 @@ class MainActivity : ComponentActivity() {
     }
 
     override fun onDestroy() {
-        castContext?.sessionManager?.removeSessionManagerListener(castListener)
+        castContext?.sessionManager?.removeSessionManagerListener(castListener, CastSession::class.java)
         super.onDestroy()
     }
 
