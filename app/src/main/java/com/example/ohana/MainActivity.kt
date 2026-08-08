@@ -34,6 +34,7 @@ import androidx.core.content.ContextCompat
 import androidx.core.content.getSystemService
 import com.google.android.gms.cast.MediaInfo
 import com.google.android.gms.cast.MediaLoadRequestData
+import com.google.android.gms.cast.MediaMetadata
 import com.google.android.gms.cast.framework.CastContext
 import com.google.android.gms.cast.framework.CastSession
 import com.google.android.gms.cast.framework.SessionManagerListener
@@ -84,7 +85,7 @@ class MainActivity : ComponentActivity() {
             castSession = null
         }
         override fun onSessionResuming(session: CastSession, sessionId: String) {}
-        override fun onSessionResumed(session: CastSession, sessionId: String) {
+        override fun onSessionResumed(session: CastSession, isLoaded: Boolean) {
             castSession = session
         }
         override fun onSessionSuspended(session: CastSession, reason: Int) {
@@ -112,7 +113,7 @@ class MainActivity : ComponentActivity() {
             castContext = CastContext.getSharedInstance(this)
             castContext?.sessionManager?.addSessionManagerListener(castListener, CastSession::class.java)
         } catch (e: Exception) {
-            Toast.makeText(this, "📺 Cast non disponible: ${e.message}", Toast.LENGTH_LONG).show()
+            Toast.makeText(this, "📺 Cast non disponible", Toast.LENGTH_SHORT).show()
         }
 
         android.os.Handler(mainLooper).postDelayed({
@@ -427,24 +428,25 @@ class MainActivity : ComponentActivity() {
     private fun castVideo(videoUrl: String, title: String) {
         val session = castSession
         if (session == null || !session.isConnected) {
-            Toast.makeText(this, "📺 Appuyez d'abord sur l'icône Cast pour connecter un appareil", Toast.LENGTH_LONG).show()
+            Toast.makeText(this, "📺 Connectez-vous d'abord à un appareil Cast", Toast.LENGTH_LONG).show()
             return
         }
 
         val uri = Uri.parse(videoUrl)
+        val urlStr = uri.toString()
         val mimeType = when {
-            videoUrl.endsWith(".mp4", true) -> "video/mp4"
-            videoUrl.endsWith(".webm", true) -> "video/webm"
-            videoUrl.endsWith(".m3u8", true) -> "application/x-mpegURL"
-            videoUrl.endsWith(".mpd", true) -> "application/dash+xml"
+            urlStr.endsWith(".mp4", true) -> "video/mp4"
+            urlStr.endsWith(".webm", true) -> "video/webm"
+            urlStr.endsWith(".m3u8", true) -> "application/x-mpegURL"
+            urlStr.endsWith(".mpd", true) -> "application/dash+xml"
             else -> "video/mp4"
         }
 
-        val metadata = com.google.android.gms.cast.MediaMetadata(com.google.android.gms.cast.MediaMetadata.MEDIA_TYPE_MOVIE)
-        metadata.putString(com.google.android.gms.cast.MediaMetadata.KEY_TITLE, title)
+        val metadata = MediaMetadata(MediaMetadata.MEDIA_TYPE_MOVIE)
+        metadata.putString(MediaMetadata.KEY_TITLE, title)
         metadata.addImage(WebImage(uri))
 
-        val mediaInfo = MediaInfo.Builder(uri)
+        val mediaInfo = MediaInfo.Builder(urlStr)
             .setStreamType(MediaInfo.STREAM_TYPE_BUFFERED)
             .setContentType(mimeType)
             .setMetadata(metadata)
@@ -455,8 +457,12 @@ class MainActivity : ComponentActivity() {
             .setAutoplay(true)
             .build()
 
-        session.remoteMediaClient.load(requestData)
-        Toast.makeText(this, "📺 Lecture sur appareil Cast lancée !", Toast.LENGTH_SHORT).show()
+        session.remoteMediaClient?.let { client ->
+            client.load(requestData)
+            Toast.makeText(this, "📺 Lecture lancée sur l'appareil !", Toast.LENGTH_SHORT).show()
+        } ?: run {
+            Toast.makeText(this, "⚠️ Client média non disponible", Toast.LENGTH_SHORT).show()
+        }
     }
 
     private fun checkAndDownloadVideo(pageUrl: String) {
