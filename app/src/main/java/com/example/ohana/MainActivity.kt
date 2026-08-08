@@ -73,7 +73,6 @@ class MainActivity : ComponentActivity() {
         prefs = getSharedPreferences("OhanaBrowser", Context.MODE_PRIVATE)
         downloadManager = getSystemService()!!
 
-        // ⚡ Initialisation DIFFÉRÉE → démarrage instantané
         android.os.Handler(mainLooper).postDelayed({
             try { castContext = CastContext.getSharedInstance(this) } catch (_: Exception) {}
             loadBlockLists()
@@ -83,7 +82,6 @@ class MainActivity : ComponentActivity() {
             MaterialTheme {
                 Surface {
                     var isPrivateMode by remember { mutableStateOf(false) }
-                    // ✅ Barre vide au démarrage → pas besoin d'effacer
                     var searchText by remember { mutableStateOf("") }
                     var progress by remember { mutableStateOf(0) }
                     var webView by remember { mutableStateOf<WebView?>(null) }
@@ -92,7 +90,6 @@ class MainActivity : ComponentActivity() {
                     var history by remember { mutableStateOf(loadHistory()) }
                     var favorites by remember { mutableStateOf(loadFavorites()) }
 
-                    // ✅ Fonction intelligente : URL ou Recherche
                     val goToUrl = { text: String ->
                         val trimmed = text.trim()
                         val url = when {
@@ -120,7 +117,6 @@ class MainActivity : ComponentActivity() {
                             )
                         }
 
-                        // ✅ BARRE DE RECHERCHE / URL INTELLIGENTE
                         OutlinedTextField(
                             value = searchText,
                             onValueChange = { searchText = it },
@@ -392,4 +388,7 @@ class MainActivity : ComponentActivity() {
                         if (resp.isSuccessful && resp.body != null) {
                             BufferedReader(InputStreamReader(resp.body!!.byteStream())).use { br ->
                                 br.lineSequence()
-                                   
+                                    .filter { it.isNotEmpty() && !it.startsWith("!") && it.startsWith("||") }
+                                    .map { it.removePrefix("||").split("^").first().trim() }
+                                    .filter { it.isNotEmpty() && !it.startsWith("/") }
+          
