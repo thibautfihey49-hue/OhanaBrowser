@@ -27,7 +27,6 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.core.content.ContextCompat
 import androidx.core.content.getSystemService
-import com.google.android.gms.cast.framework.CastContext
 import dagger.hilt.android.AndroidEntryPoint
 import okhttp3.*
 import java.io.BufferedReader
@@ -46,12 +45,14 @@ data class BrowserEntry(
 @AndroidEntryPoint
 class MainActivity : ComponentActivity() {
     private val blockedHosts = ConcurrentHashMap.newKeySet<String>()
-    private val okHttpClient = OkHttpClient.Builder()
-        .connectTimeout(5, TimeUnit.SECONDS)
-        .readTimeout(10, TimeUnit.SECONDS)
-        .retryOnConnectionFailure(true)
-        .followSslRedirects(true)
-        .build()
+    private val okHttpClient by lazy {
+        OkHttpClient.Builder()
+            .connectTimeout(5, TimeUnit.SECONDS)
+            .readTimeout(10, TimeUnit.SECONDS)
+            .retryOnConnectionFailure(true)
+            .followSslRedirects(true)
+            .build()
+    }
 
     private var pendingVideoUrl: String? = null
     private lateinit var downloadManager: DownloadManager
@@ -69,15 +70,19 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         prefs = getSharedPreferences("OhanaBrowser", Context.MODE_PRIVATE)
-        try { castContext = CastContext.getSharedInstance(this) } catch (_: Exception) {}
         downloadManager = getSystemService()!!
-        loadBlockLists()
+
+        // ⚡ Initialisation DIFFÉRÉE : ne ralentit PAS le démarrage
+        android.os.Handler(mainLooper).postDelayed({
+            try { castContext = CastContext.getSharedInstance(this) } catch (_: Exception) {}
+            loadBlockLists()
+        }, 800) // Charge après l'affichage → démarrage instantané
 
         setContent {
             MaterialTheme {
                 Surface {
                     var isPrivateMode by remember { mutableStateOf(false) }
-                    var url by remember { mutableStateOf("https://google.com") }
+                    var url by remember { mutableStateOf("about:blank") }
                     var progress by remember { mutableStateOf(0) }
                     var webView by remember { mutableStateOf<WebView?>(null) }
                     var showHistory by remember { mutableStateOf(false) }
@@ -108,7 +113,12 @@ class MainActivity : ComponentActivity() {
                             modifier = Modifier.fillMaxWidth().padding(8.dp),
                             singleLine = true,
                             trailingIcon = {
-                                TextButton(onClick = { webView?.loadUrl(url) }) { Text("Aller") }
+                                TextButton(onClick = {
+                                    if (url.isNotBlank() && !url.startsWith("http")) {
+                                        url = "https://$url"
+                                    }
+                                    webView?.loadUrl(url)
+                                }) { Text("Aller") }
                             }
                         )
 
@@ -122,21 +132,29 @@ class MainActivity : ComponentActivity() {
                             IconButton(onClick = { showHistory = !showHistory }) { Text("📜") }
                             IconButton(onClick = {
                                 val u = webView?.url ?: return@IconButton
-                                toggleFavorite(u, webView?.title ?: u, favorites)
-                                favorites = loadFavorites()
+                                if (u != "about:blank") {
+                                    toggleFavorite(u, webView?.title ?: u, favorites)
+                                    favorites = loadFavorites()
+                                }
                             }) { Text("⭐") }
                             IconButton(onClick = { showFavorites = !showFavorites }) { Text("📂") }
                             IconButton(onClick = {
-                                webView?.let { detectAndDownloadVideo(it.url ?: return@IconButton) }
+                                webView?.let { wv ->
+                                    val u = wv.url ?: return@IconButton
+                                    if (u != "about:blank") detectAndDownloadVideo(u)
+                                }
                             }) { Text("📥") }
                             IconButton(onClick = {
-                                webView?.let { castVideo(it.url ?: return@IconButton) }
+                                webView?.let { wv ->
+                                    val u = wv.url ?: return@IconButton
+                                    if (u != "about:blank") castVideo(u)
+                                }
                             }) { Text("📺") }
                             IconButton(onClick = {
                                 isPrivateMode = !isPrivateMode
                                 if (isPrivateMode) clearWebData()
                                 webView?.clearHistory()
-                                url = "https://google.com"
+                                url = "about:blank"
                                 webView?.loadUrl(url)
                             }) { Text(if (isPrivateMode) "🔴" else "🔒") }
                         }
@@ -202,7 +220,7 @@ class MainActivity : ComponentActivity() {
                                     WebView(ctx).apply {
                                         settings.javaScriptEnabled = true
                                         settings.domStorageEnabled = true
-                                        settings.cacheMode = WebSettings.LOAD_DEFAULT
+                                        settings.cacheMode = WebSettings.LOAD_CACHE_ELSE_NETWORK
                                         settings.useWideViewPort = true
                                         settings.loadWithOverviewMode = true
                                         settings.mediaPlaybackRequiresUserGesture = false
@@ -222,8 +240,8 @@ class MainActivity : ComponentActivity() {
 
                                             override fun onPageFinished(view: WebView?, url: String?) {
                                                 super.onPageFinished(view, url)
-                                                if (!isPrivateMode) {
-                                                    url?.let { addToHistory(it, view?.title ?: it) }
+                                                if (!isPrivateMode && !url.isNullOrBlank() && url != "about:blank") {
+                                                    addToHistory(url, view?.title ?: url)
                                                     history = loadHistory()
                                                 }
                                             }
@@ -237,11 +255,14 @@ class MainActivity : ComponentActivity() {
                                         }
 
                                         webView = this
-                                        loadUrl("https://google.com")
                                     }
                                 },
                                 modifier = Modifier.weight(1f),
-                                update = { wv -> if (wv.url != url) wv.loadUrl(url) }
+                                update = { wv ->
+                                    if (wv.url != url && url.isNotBlank()) {
+                                        wv.loadUrl(url)
+                                    }
+                                }
                             )
                         }
                     }
