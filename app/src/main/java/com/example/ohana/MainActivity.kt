@@ -25,11 +25,11 @@ class MainActivity : ComponentActivity() {
                     var webView by remember { mutableStateOf<WebView?>(null) }
 
                     Column(modifier = Modifier.fillMaxSize()) {
-                        // 📊 Barre de progression
+                        // 📊 Barre de progression (version compatible)
                         if (progress in 1..99) {
                             LinearProgressIndicator(
-                                progress = { progress / 100f },
-                                modifier = Modifier.fillMaxWidth(),
+                                progress = progress / 100f,
+                                modifier = Modifier.fillMaxWidth()
                             )
                         }
 
