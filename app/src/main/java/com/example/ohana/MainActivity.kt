@@ -25,7 +25,6 @@ import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
 import androidx.core.content.getSystemService
 import com.google.android.gms.cast.framework.CastContext
-import com.google.android.gms.cast.framework.media.widget.MiniControllerFragment
 import dagger.hilt.android.AndroidEntryPoint
 import okhttp3.OkHttpClient
 import okhttp3.Request
@@ -175,9 +174,8 @@ class MainActivity : ComponentActivity() {
 
         if (isVideoUrl) {
             Toast.makeText(this, "📺 Recherche appareil...", Toast.LENGTH_SHORT).show()
-            // Lancer la diffusion via le bouton Cast natif
             val uri = Uri.parse(pageUrl)
-            Toast.makeText(this, "📺 Vidéo prête à diffuser : ${uri.lastPathSegment}", Toast.LENGTH_LONG).show()
+            Toast.makeText(this, "📺 Vidéo prête : ${uri.lastPathSegment}", Toast.LENGTH_LONG).show()
         } else {
             Toast.makeText(this, "⚠️ Ce n'est pas un lien vidéo direct", Toast.LENGTH_SHORT).show()
         }
