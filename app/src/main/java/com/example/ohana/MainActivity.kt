@@ -64,8 +64,13 @@ class MainActivity : ComponentActivity() {
     private val permissionLauncher = registerForActivityResult(
         ActivityResultContracts.RequestPermission()
     ) { isGranted ->
-        if (isGranted) pendingVideoUrl?.let { downloadVideo(it) }
-        else Toast.makeText(this, "Permission stockage refusée", Toast.LENGTH_SHORT).show()
+        if (isGranted) {
+            pendingVideoUrl?.let { safeUrl ->
+                doDownloadVideo(safeUrl)
+            }
+        } else {
+            Toast.makeText(this, "Permission stockage refusée", Toast.LENGTH_SHORT).show()
+        }
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -153,13 +158,17 @@ class MainActivity : ComponentActivity() {
                             IconButton(onClick = {
                                 webView?.let { wv ->
                                     val u = wv.url ?: return@IconButton
-                                    if (!u.isNullOrBlank() && !u.startsWith("about:")) detectAndDownloadVideo(u)
+                                    if (!u.isNullOrBlank() && !u.startsWith("about:")) {
+                                        detectAndDownloadVideo(u)
+                                    }
                                 }
                             }) { Text("📥") }
                             IconButton(onClick = {
                                 webView?.let { wv ->
                                     val u = wv.url ?: return@IconButton
-                                    if (!u.isNullOrBlank() && !u.startsWith("about:")) castVideo(u)
+                                    if (!u.isNullOrBlank() && !u.startsWith("about:")) {
+                                        castVideo(u)
+                                    }
                                 }
                             }) { Text("📺") }
                             IconButton(onClick = {
@@ -346,20 +355,26 @@ class MainActivity : ComponentActivity() {
         if (isVideo) {
             pendingVideoUrl = pageUrl
             when {
-                Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q -> downloadVideo(pageUrl)
+                Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q -> {
+                    doDownloadVideo(pageUrl)
+                }
                 ContextCompat.checkSelfPermission(
                     this, Manifest.permission.WRITE_EXTERNAL_STORAGE
-                ) == PackageManager.PERMISSION_GRANTED -> downloadVideo(pageUrl)
-                else -> permissionLauncher.launch(Manifest.permission.WRITE_EXTERNAL_STORAGE)
+                ) == PackageManager.PERMISSION_GRANTED -> {
+                    doDownloadVideo(pageUrl)
+                }
+                else -> {
+                    permissionLauncher.launch(Manifest.permission.WRITE_EXTERNAL_STORAGE)
+                }
             }
         } else {
             Toast.makeText(this, "⚠️ Pas de lien vidéo direct", Toast.LENGTH_SHORT).show()
         }
     }
 
-    private fun downloadVideo(videoUrl: String) {
+    private fun doDownloadVideo(videoUrl: String) {
+        val uri = Uri.parse(videoUrl)
         try {
-            val uri = Uri.parse(videoUrl)
             val request = DownloadManager.Request(uri)
             request.setTitle("Vidéo - ${System.currentTimeMillis()}")
             request.setDescription("Téléchargé depuis Ohana Browser")
@@ -385,9 +400,4 @@ class MainActivity : ComponentActivity() {
                     val req = Request.Builder().url(url).build()
                     okHttpClient.newCall(req).execute().use { resp ->
                         if (resp.isSuccessful && resp.body != null) {
-                            BufferedReader(InputStreamReader(resp.body!!.byteStream())).use { br ->
-                                br.lineSequence()
-                                    .filter { it.isNotEmpty() && !it.startsWith("!") && it.startsWith("||") }
-                                    .map { it.removePrefix("||").split("^").first().trim() }
-                                    .filter { it.isNotEmpty() && !it.startsWith("/") }
-    
+                            BufferedReader(InputStreamReader(resp.body!!.byt
