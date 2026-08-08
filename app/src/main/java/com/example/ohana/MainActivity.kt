@@ -373,12 +373,8 @@ class MainActivity : ComponentActivity() {
         req.setNotificationVisibility(DownloadManager.Request.VISIBILITY_VISIBLE_NOTIFY_COMPLETED)
         val name = uri.lastPathSegment ?: "video.mp4"
         req.setDestinationInExternalPublicDir(Environment.DIRECTORY_DOWNLOADS, "Ohana_$name")
-        try {
-            downloadManager.enqueue(req)
-            Toast.makeText(this, "Download started !", Toast.LENGTH_SHORT).show()
-        } catch (e: Exception) {
-            Toast.makeText(this, "Error", Toast.LENGTH_SHORT).show()
-        }
+        downloadManager.enqueue(req)
+        Toast.makeText(this, "Download started !", Toast.LENGTH_SHORT).show()
         pendingVideoUrl = null
     }
 
@@ -396,4 +392,14 @@ class MainActivity : ComponentActivity() {
                             BufferedReader(InputStreamReader(resp.body!!.byteStream())).use { br ->
                                 br.lineSequence()
                                     .filter { it.isNotEmpty() && !it.startsWith("!") && it.startsWith("||") }
-                                    .m
+                                    .map { it.removePrefix("||").split("^").first().trim() }
+                                    .filter { it.isNotEmpty() && !it.startsWith("/") }
+                                    .forEach { blockedHosts.add(it) }
+                            }
+                        }
+                    }
+                } catch (_: Exception) {}
+            }
+        }.start()
+    }
+}
