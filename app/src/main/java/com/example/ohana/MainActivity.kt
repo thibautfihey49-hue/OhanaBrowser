@@ -9,6 +9,7 @@ import android.net.Uri
 import android.os.Build
 import android.os.Bundle
 import android.os.Environment
+import android.view.KeyEvent
 import android.webkit.*
 import android.widget.Toast
 import androidx.activity.ComponentActivity
@@ -18,10 +19,14 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.text.KeyboardActions
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.input.key.onKeyEvent
+import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
@@ -48,8 +53,8 @@ class MainActivity : ComponentActivity() {
     private val blockedHosts = ConcurrentHashMap.newKeySet<String>()
     private val okHttpClient by lazy {
         OkHttpClient.Builder()
-            .connectTimeout(5, TimeUnit.SECONDS)
-            .readTimeout(10, TimeUnit.SECONDS)
+            .connectTimeout(2, TimeUnit.SECONDS)
+            .readTimeout(5, TimeUnit.SECONDS)
             .retryOnConnectionFailure(true)
             .followSslRedirects(true)
             .build()
@@ -80,7 +85,7 @@ class MainActivity : ComponentActivity() {
         android.os.Handler(mainLooper).postDelayed({
             try { castContext = CastContext.getSharedInstance(this) } catch (_: Exception) {}
             loadBlockLists()
-        }, 800)
+        }, 500)
 
         setContent {
             MaterialTheme {
@@ -95,8 +100,12 @@ class MainActivity : ComponentActivity() {
 
                     val goToUrl = { text: String ->
                         val trimmed = text.trim()
+                        if (trimmed.isBlank()) {
+                            mainWebView?.loadUrl("https://www.google.com")
+                            searchText = ""
+                            return@MaterialTheme
+                        }
                         val url = when {
-                            trimmed.isBlank() -> "https://www.google.com"
                             trimmed.startsWith("http://") || trimmed.startsWith("https://") -> trimmed
                             trimmed.contains(".") && !trimmed.contains(" ") -> "https://$trimmed"
                             else -> "https://www.google.com/search?q=${Uri.encode(trimmed)}"
@@ -108,8 +117,8 @@ class MainActivity : ComponentActivity() {
                     Column(modifier = Modifier.fillMaxSize()) {
                         if (isPrivateMode) {
                             Surface(color = Color(0xFF662222), modifier = Modifier.fillMaxWidth()) {
-                                Text(" 🔒 NAVIGATION PRIVÉE — Aucune donnée sauvegardée",
-                                    color = Color.White, modifier = Modifier.padding(8.dp),
+                                Text(" 🔒 NAVIGATION PRIVÉE",
+                                    color = Color.White, modifier = Modifier.padding(6.dp),
                                     style = MaterialTheme.typography.bodySmall)
                             }
                         }
@@ -124,22 +133,35 @@ class MainActivity : ComponentActivity() {
                         OutlinedTextField(
                             value = searchText,
                             onValueChange = { searchText = it },
-                            placeholder = { Text("Rechercher ou entrer une URL...") },
+                            placeholder = { Text("Rechercher ou URL...") },
                             label = { Text("Recherche / URL") },
-                            modifier = Modifier.fillMaxWidth().padding(8.dp),
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(6.dp)
+                                .onKeyEvent { keyEvent ->
+                                    if (keyEvent.nativeKeyEvent.keyCode == KeyEvent.KEYCODE_ENTER
+                                        && keyEvent.nativeKeyEvent.action == KeyEvent.ACTION_UP
+                                    ) {
+                                        goToUrl(searchText)
+                                        true
+                                    } else false
+                                },
                             singleLine = true,
+                            keyboardOptions = KeyboardOptions(imeAction = ImeAction.Go),
+                            keyboardActions = KeyboardActions(
+                                onGo = { goToUrl(searchText) }
+                            ),
                             trailingIcon = {
                                 Row {
                                     if (searchText.isNotBlank()) {
                                         IconButton(onClick = { searchText = "" }) { Text("✕") }
                                     }
-                                    TextButton(onClick = { goToUrl(searchText) }) { Text("Aller") }
                                 }
                             }
                         )
 
                         Row(
-                            modifier = Modifier.fillMaxWidth().padding(2.dp),
+                            modifier = Modifier.fillMaxWidth().padding(1.dp),
                             horizontalArrangement = Arrangement.SpaceEvenly
                         ) {
                             IconButton(onClick = { mainWebView?.goBack() }) { Text("◀") }
@@ -175,12 +197,10 @@ class MainActivity : ComponentActivity() {
                         }
 
                         if (showHistory && !isPrivateMode) {
-                            Card(modifier = Modifier.fillMaxWidth().weight(1f).padding(8.dp)) {
+                            Card(modifier = Modifier.fillMaxWidth().weight(1f).padding(6.dp)) {
                                 Column {
-                                    Row(
-                                        Modifier.fillMaxWidth().padding(8.dp),
-                                        horizontalArrangement = Arrangement.SpaceBetween
-                                    ) {
+                                    Row(Modifier.fillMaxWidth().padding(6.dp),
+                                        horizontalArrangement = Arrangement.SpaceBetween) {
                                         Text("📜 Historique", fontWeight = FontWeight.Bold)
                                         TextButton(onClick = { showHistory = false }) { Text("✕") }
                                     }
@@ -190,12 +210,10 @@ class MainActivity : ComponentActivity() {
                                                 searchText = entry.url
                                                 mainWebView?.loadUrl(entry.url)
                                                 showHistory = false
-                                            }.padding(8.dp)) {
+                                            }.padding(6.dp)) {
                                                 Text(entry.title, fontWeight = FontWeight.Medium)
-                                                Text(
-                                                    "${dateFormat.format(Date(entry.timestamp))} · ${entry.url.take(40)}...",
-                                                    style = MaterialTheme.typography.bodySmall
-                                                )
+                                                Text("${dateFormat.format(Date(entry.timestamp))} · ${entry.url.take(35)}...",
+                                                    style = MaterialTheme.typography.bodySmall)
                                             }
                                         }
                                     }
@@ -204,12 +222,10 @@ class MainActivity : ComponentActivity() {
                         }
 
                         if (showFavorites) {
-                            Card(modifier = Modifier.fillMaxWidth().weight(1f).padding(8.dp)) {
+                            Card(modifier = Modifier.fillMaxWidth().weight(1f).padding(6.dp)) {
                                 Column {
-                                    Row(
-                                        Modifier.fillMaxWidth().padding(8.dp),
-                                        horizontalArrangement = Arrangement.SpaceBetween
-                                    ) {
+                                    Row(Modifier.fillMaxWidth().padding(6.dp),
+                                        horizontalArrangement = Arrangement.SpaceBetween) {
                                         Text("⭐ Favoris", fontWeight = FontWeight.Bold)
                                         TextButton(onClick = { showFavorites = false }) { Text("✕") }
                                     }
@@ -219,7 +235,7 @@ class MainActivity : ComponentActivity() {
                                                 searchText = entry.url
                                                 mainWebView?.loadUrl(entry.url)
                                                 showFavorites = false
-                                            }.padding(8.dp)) {
+                                            }.padding(6.dp)) {
                                                 Text(entry.title, fontWeight = FontWeight.Medium)
                                                 Text(entry.url, style = MaterialTheme.typography.bodySmall)
                                             }
@@ -240,6 +256,10 @@ class MainActivity : ComponentActivity() {
                                         settings.useWideViewPort = true
                                         settings.loadWithOverviewMode = true
                                         settings.mediaPlaybackRequiresUserGesture = false
+                                        settings.setGeolocationEnabled(false)
+                                        settings.databaseEnabled = false
+                                        settings.allowFileAccess = false
+                                        settings.allowContentAccess = false
                                         CookieManager.getInstance().setAcceptThirdPartyCookies(this, false)
 
                                         webViewClient = object : WebViewClient() {
@@ -338,7 +358,7 @@ class MainActivity : ComponentActivity() {
             return
         }
         if (isVideo) {
-            Toast.makeText(this, "📺 Vidéo détectée — lancement sur appareil…", Toast.LENGTH_SHORT).show()
+            Toast.makeText(this, "📺 Vidéo détectée", Toast.LENGTH_SHORT).show()
         } else {
             Toast.makeText(this, "⚠️ Pas de lien vidéo direct", Toast.LENGTH_SHORT).show()
         }
@@ -371,7 +391,7 @@ class MainActivity : ComponentActivity() {
         val name = uri.lastPathSegment ?: "video.mp4"
         req.setDestinationInExternalPublicDir(Environment.DIRECTORY_DOWNLOADS, "Ohana_$name")
         downloadManager.enqueue(req)
-        Toast.makeText(this, "Download started !", Toast.LENGTH_SHORT).show()
+        Toast.makeText(this, "📥 Téléchargement lancé !", Toast.LENGTH_SHORT).show()
         pendingVideoUrl = null
     }
 
