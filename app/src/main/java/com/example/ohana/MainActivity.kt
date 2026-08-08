@@ -60,6 +60,7 @@ class MainActivity : ComponentActivity() {
     private var castContext: CastContext? = null
     private lateinit var prefs: SharedPreferences
     private val dateFormat = SimpleDateFormat("dd/MM HH:mm", Locale.FRANCE)
+    private var mainWebView: WebView? = null
 
     private val permissionLauncher = registerForActivityResult(
         ActivityResultContracts.RequestPermission()
@@ -87,7 +88,6 @@ class MainActivity : ComponentActivity() {
                     var isPrivateMode by remember { mutableStateOf(false) }
                     var searchText by remember { mutableStateOf("") }
                     var progress by remember { mutableStateOf(0) }
-                    var webView by remember { mutableStateOf<WebView?>(null) }
                     var showHistory by remember { mutableStateOf(false) }
                     var showFavorites by remember { mutableStateOf(false) }
                     var history by remember { mutableStateOf(loadHistory()) }
@@ -101,7 +101,8 @@ class MainActivity : ComponentActivity() {
                             trimmed.contains(".") && !trimmed.contains(" ") -> "https://$trimmed"
                             else -> "https://www.google.com/search?q=${Uri.encode(trimmed)}"
                         }
-                        webView?.loadUrl(url)
+                        mainWebView?.loadUrl(url)
+                        searchText = url
                     }
 
                     Column(modifier = Modifier.fillMaxSize()) {
@@ -141,38 +142,34 @@ class MainActivity : ComponentActivity() {
                             modifier = Modifier.fillMaxWidth().padding(2.dp),
                             horizontalArrangement = Arrangement.SpaceEvenly
                         ) {
-                            IconButton(onClick = { webView?.goBack() }) { Text("◀") }
-                            IconButton(onClick = { webView?.reload() }) { Text("🔄") }
-                            IconButton(onClick = { webView?.goForward() }) { Text("▶") }
+                            IconButton(onClick = { mainWebView?.goBack() }) { Text("◀") }
+                            IconButton(onClick = { mainWebView?.reload() }) { Text("🔄") }
+                            IconButton(onClick = { mainWebView?.goForward() }) { Text("▶") }
                             IconButton(onClick = { showHistory = !showHistory }) { Text("📜") }
                             IconButton(onClick = {
-                                val u = webView?.url ?: return@IconButton
+                                val u = mainWebView?.url ?: return@IconButton
                                 if (!u.isNullOrBlank() && !u.startsWith("about:")) {
-                                    toggleFavorite(u, webView?.title ?: u, favorites)
+                                    toggleFavorite(u, mainWebView?.title ?: u, favorites)
                                     favorites = loadFavorites()
                                 }
                             }) { Text("⭐") }
                             IconButton(onClick = { showFavorites = !showFavorites }) { Text("📂") }
                             IconButton(onClick = {
-                                webView?.let { wv ->
-                                    val u = wv.url ?: return@IconButton
-                                    if (!u.isNullOrBlank() && !u.startsWith("about:")) {
-                                        checkAndDownloadVideo(u)
-                                    }
+                                val u = mainWebView?.url ?: return@IconButton
+                                if (!u.isNullOrBlank() && !u.startsWith("about:")) {
+                                    checkAndDownloadVideo(u)
                                 }
                             }) { Text("📥") }
                             IconButton(onClick = {
-                                webView?.let { wv ->
-                                    val u = wv.url ?: return@IconButton
-                                    if (!u.isNullOrBlank() && !u.startsWith("about:")) {
-                                        castVideo(u)
-                                    }
+                                val u = mainWebView?.url ?: return@IconButton
+                                if (!u.isNullOrBlank() && !u.startsWith("about:")) {
+                                    castVideo(u)
                                 }
                             }) { Text("📺") }
                             IconButton(onClick = {
                                 isPrivateMode = !isPrivateMode
                                 if (isPrivateMode) clearWebData()
-                                webView?.clearHistory()
+                                mainWebView?.clearHistory()
                                 searchText = ""
                             }) { Text(if (isPrivateMode) "🔴" else "🔒") }
                         }
@@ -191,7 +188,7 @@ class MainActivity : ComponentActivity() {
                                         items(history) { entry ->
                                             Column(Modifier.clickable {
                                                 searchText = entry.url
-                                                webView?.loadUrl(entry.url)
+                                                mainWebView?.loadUrl(entry.url)
                                                 showHistory = false
                                             }.padding(8.dp)) {
                                                 Text(entry.title, fontWeight = FontWeight.Medium)
@@ -220,7 +217,7 @@ class MainActivity : ComponentActivity() {
                                         items(favorites) { entry ->
                                             Column(Modifier.clickable {
                                                 searchText = entry.url
-                                                webView?.loadUrl(entry.url)
+                                                mainWebView?.loadUrl(entry.url)
                                                 showFavorites = false
                                             }.padding(8.dp)) {
                                                 Text(entry.title, fontWeight = FontWeight.Medium)
@@ -236,6 +233,7 @@ class MainActivity : ComponentActivity() {
                             AndroidView(
                                 factory = { ctx ->
                                     WebView(ctx).apply {
+                                        mainWebView = this
                                         settings.javaScriptEnabled = true
                                         settings.domStorageEnabled = true
                                         settings.cacheMode = WebSettings.LOAD_CACHE_ELSE_NETWORK
@@ -272,11 +270,10 @@ class MainActivity : ComponentActivity() {
                                             }
                                         }
 
-                                        webView = this
+                                        loadUrl("https://www.google.com")
                                     }
                                 },
-                                modifier = Modifier.weight(1f),
-                                update = { }
+                                modifier = Modifier.weight(1f)
                             )
                         }
                     }
