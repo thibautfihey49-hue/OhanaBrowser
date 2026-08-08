@@ -3,6 +3,7 @@ import android.Manifest
 import android.app.DownloadManager
 import android.content.Context
 import android.content.SharedPreferences
+import android.content.pm.PackageManager
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
@@ -171,7 +172,7 @@ class MainActivity : ComponentActivity() {
                                             }.padding(8.dp)) {
                                                 Text(entry.title, fontWeight = FontWeight.Medium)
                                                 Text("${dateFormat.format(Date(entry.timestamp))} · ${entry.url.take(40)}...",
-                                                    style = androidx.compose.material3.MaterialTheme.typography.bodySmall)
+                                                    style = MaterialTheme.typography.bodySmall)
                                             }
                                         }
                                     }
@@ -196,7 +197,7 @@ class MainActivity : ComponentActivity() {
                                                 showFavorites = false
                                             }.padding(8.dp)) {
                                                 Text(entry.title, fontWeight = FontWeight.Medium)
-                                                Text(entry.url, style = androidx.compose.material3.MaterialTheme.typography.bodySmall)
+                                                Text(entry.url, style = MaterialTheme.typography.bodySmall)
                                             }
                                         }
                                     }
@@ -273,7 +274,7 @@ class MainActivity : ComponentActivity() {
         val history = loadHistory().toMutableList()
         history.removeAll { it.url == url }
         history.add(0, BrowserEntry(url, title))
-        if (history.size > 100) history.removeLast() // Limite à 100 entrées
+        if (history.size > 100) history.removeLast()
         prefs.edit()
             .putStringSet("history_urls", history.map { it.url }.toMutableSet())
             .putStringSet("history_titles", history.map { it.title }.toMutableSet())
