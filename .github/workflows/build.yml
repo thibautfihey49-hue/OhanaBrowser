@@ -17,11 +17,15 @@ jobs:
           java-version: '17'
           distribution: 'temurin'
 
-      - name: Donner les droits à Gradle
-        run: chmod +x gradlew
+      - name: Créer le wrapper Gradle
+        run: |
+          mkdir -p gradle/wrapper
+          echo "distributionUrl=https\://services.gradle.org/distributions/gradle-8.5-bin.zip" > gradle/wrapper/gradle-wrapper.properties
 
       - name: Compiler l'APK
-        run: ./gradlew assembleDebug
+        run: |
+          chmod +x gradlew 2>/dev/null || true
+          ./gradlew assembleDebug --no-daemon
 
       - name: Récupérer l'APK
         uses: actions/upload-artifact@v4
