@@ -360,14 +360,13 @@ class MainActivity : ComponentActivity() {
     private fun downloadVideo(videoUrl: String) {
         try {
             val uri = Uri.parse(videoUrl)
-            val req = DownloadManager.Request(uri).apply {
-                setTitle("Vidéo — ${System.currentTimeMillis()}")
-                setDescription("Téléchargé depuis Ohana Browser")
-                setAllowedNetworkTypes(DownloadManager.Request.NETWORK_WIFI or DownloadManager.Request.NETWORK_MOBILE)
-                setNotificationVisibility(DownloadManager.Request.VISIBILITY_VISIBLE_NOTIFY_COMPLETED)
-                setDestinationInExternalPublicDir(Environment.DIRECTORY_DOWNLOADS, "Ohana_${uri.lastPathSegment}")
-            }
-            downloadManager.enqueue(req)
+            val request = DownloadManager.Request(uri)
+            request.setTitle("Vidéo - ${System.currentTimeMillis()}")
+            request.setDescription("Téléchargé depuis Ohana Browser")
+            request.setAllowedNetworkTypes(DownloadManager.Request.NETWORK_WIFI or DownloadManager.Request.NETWORK_MOBILE)
+            request.setNotificationVisibility(DownloadManager.Request.VISIBILITY_VISIBLE_NOTIFY_COMPLETED)
+            request.setDestinationInExternalPublicDir(Environment.DIRECTORY_DOWNLOADS, "Ohana_${uri.lastPathSegment}")
+            downloadManager.enqueue(request)
             Toast.makeText(this, "📥 Téléchargement lancé !", Toast.LENGTH_SHORT).show()
         } catch (e: Exception) {
             Toast.makeText(this, "Erreur : ${e.message}", Toast.LENGTH_SHORT).show()
@@ -391,4 +390,4 @@ class MainActivity : ComponentActivity() {
                                     .filter { it.isNotEmpty() && !it.startsWith("!") && it.startsWith("||") }
                                     .map { it.removePrefix("||").split("^").first().trim() }
                                     .filter { it.isNotEmpty() && !it.startsWith("/") }
-          
+    
