@@ -203,12 +203,9 @@ class MainActivity : ComponentActivity() {
                                         settings.javaScriptEnabled = true
                                         settings.domStorageEnabled = true
                                         settings.cacheMode = WebSettings.LOAD_DEFAULT
-                                        settings.setAppCacheEnabled(true)
-                                        settings.databaseEnabled = true
                                         settings.useWideViewPort = true
                                         settings.loadWithOverviewMode = true
                                         settings.mediaPlaybackRequiresUserGesture = false
-                                        settings.mixedContentMode = WebSettings.MIXED_CONTENT_COMPATIBILITY_MODE
                                         CookieManager.getInstance().setAcceptThirdPartyCookies(this, false)
 
                                         webViewClient = object : WebViewClient() {
@@ -360,13 +357,13 @@ class MainActivity : ComponentActivity() {
                 try {
                     val req = Request.Builder().url(url).build()
                     okHttpClient.newCall(req).execute().use { resp ->
-                        if (resp.isSuccessful) {
-                            BufferedReader(InputStreamReader(resp.body?.byteStream())).use { br ->
+                        if (resp.isSuccessful && resp.body != null) {
+                            BufferedReader(InputStreamReader(resp.body!!.byteStream())).use { br ->
                                 br.lineSequence()
                                     .filter { it.isNotEmpty() && !it.startsWith("!") && it.startsWith("||") }
                                     .map { it.removePrefix("||").split("^").first().trim() }
-                                    .filter { it.isNotEmpty() }
-                                    .forEach { blockedHosts[it] = true }
+                                    .filter { it.isNotEmpty() && !it.startsWith("/") }
+                                    .forEach { blockedHosts.add(it) }
                             }
                         }
                     }
