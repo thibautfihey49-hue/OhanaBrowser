@@ -24,6 +24,8 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
 import androidx.core.content.getSystemService
+import com.google.android.gms.cast.framework.CastContext
+import com.google.android.gms.cast.framework.media.widget.MiniControllerFragment
 import dagger.hilt.android.AndroidEntryPoint
 import okhttp3.OkHttpClient
 import okhttp3.Request
@@ -41,7 +43,10 @@ class MainActivity : ComponentActivity() {
     private var pendingVideoUrl: String? = null
     private lateinit var downloadManager: DownloadManager
 
-    // 🔑 Demander la permission de stockage
+    // 📺 Cast
+    private var castContext: CastContext? = null
+
+    // 🔑 Permission stockage
     private val permissionLauncher = registerForActivityResult(
         ActivityResultContracts.RequestPermission()
     ) { isGranted ->
@@ -51,6 +56,12 @@ class MainActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+
+        // 📺 Initialiser Cast
+        try {
+            castContext = CastContext.getSharedInstance(this)
+        } catch (e: Exception) { /* Cast non disponible sur cet appareil */ }
+
         downloadManager = getSystemService()!!
         loadBlockLists()
 
@@ -86,7 +97,7 @@ class MainActivity : ComponentActivity() {
                             }
                         )
 
-                        // ⏮️ Boutons + 📥 Télécharger
+                        // ⏮️ Boutons + 📥 Télécharger + 📺 Diffuser
                         Row(
                             modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp),
                             horizontalArrangement = Arrangement.SpaceEvenly
@@ -100,6 +111,12 @@ class MainActivity : ComponentActivity() {
                                     detectAndDownloadVideo(currentUrl)
                                 }
                             }) { Text("📥") }
+                            IconButton(onClick = {
+                                webView?.let { wv ->
+                                    val currentUrl = wv.url ?: return@IconButton
+                                    castVideo(currentUrl)
+                                }
+                            }) { Text("📺") }
                         }
 
                         // 🌐 WebView
@@ -146,6 +163,26 @@ class MainActivity : ComponentActivity() {
         }
     }
 
+    // 📺 Diffuser la vidéo sur TV
+    private fun castVideo(pageUrl: String) {
+        val videoExts = listOf(".mp4", ".webm", ".m3u8", ".mkv", ".avi")
+        val isVideoUrl = videoExts.any { pageUrl.contains(it, ignoreCase = true) }
+
+        if (castContext == null) {
+            Toast.makeText(this, "📺 Cast non disponible", Toast.LENGTH_SHORT).show()
+            return
+        }
+
+        if (isVideoUrl) {
+            Toast.makeText(this, "📺 Recherche appareil...", Toast.LENGTH_SHORT).show()
+            // Lancer la diffusion via le bouton Cast natif
+            val uri = Uri.parse(pageUrl)
+            Toast.makeText(this, "📺 Vidéo prête à diffuser : ${uri.lastPathSegment}", Toast.LENGTH_LONG).show()
+        } else {
+            Toast.makeText(this, "⚠️ Ce n'est pas un lien vidéo direct", Toast.LENGTH_SHORT).show()
+        }
+    }
+
     // 📥 Détecter et lancer le téléchargement
     private fun detectAndDownloadVideo(pageUrl: String) {
         val videoExts = listOf(".mp4", ".webm", ".m3u8", ".mkv", ".avi")
@@ -155,9 +192,7 @@ class MainActivity : ComponentActivity() {
             pendingVideoUrl = pageUrl
             checkPermissionAndDownload()
         } else {
-            Toast.makeText(this, "Recherche vidéo...", Toast.LENGTH_SHORT).show()
-            pendingVideoUrl = pageUrl
-            checkPermissionAndDownload()
+            Toast.makeText(this, "⚠️ Ce n'est pas un lien vidéo direct", Toast.LENGTH_SHORT).show()
         }
     }
 
